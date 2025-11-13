@@ -1,0 +1,9 @@
+[submodule "vendor/luajit2"]
+	path = vendor/luajit2
+	url = https://github.com/openresty/luajit2.git
+[submodule "vendor/proc_utils"]
+	path = vendor/proc_utils
+	url = https://github.com/daiaji/proc_utils.git
+[submodule "vendor/lfs"]
+	path = vendor/lfs
+	url = https://github.com/lunarmodules/luafilesystem.git

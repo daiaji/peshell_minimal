@@ -1,0 +1,53 @@
+# Language: Cpp
+# BasedOnStyle: Google
+# --- My Customizations ---
+
+# 缩进和对齐
+IndentWidth: 4
+TabWidth: 4
+UseTab: Never
+AlignConsecutiveAssignments: true
+AlignConsecutiveDeclarations: true
+AlignEscapedNewlines: Right
+ColumnLimit: 120 # 适当放宽行宽限制
+
+# 大括号换行
+BreakBeforeBraces: Custom
+BraceWrapping:
+  AfterClass: true
+  AfterControlStatement: Always
+  AfterEnum: true
+  AfterFunction: true
+  AfterNamespace: true
+  AfterStruct: true
+  AfterUnion: true
+  BeforeCatch: true
+  BeforeElse: true
+  IndentBraces: false
+
+# 指针和引用的对齐
+PointerAlignment: Left # 将 * 和 & 靠左对齐 (e.g., int* p)
+
+# 函数声明和调用
+AllowShortFunctionsOnASingleLine: Empty # 只有空函数才能写在一行
+AllowShortIfStatementsOnASingleLine: false
+AllowShortLoopsOnASingleLine: false
+BinPackParameters: false # 不要把函数参数打包到一行
+
+# include 排序
+SortIncludes: true
+IncludeBlocks: Regroup
+IncludeCategories:
+  - Regex:           '^<.*\.h>'
+    Priority:        1 # C 系统头文件
+  - Regex:           '^<.*>'
+    Priority:        2 # C++ 系统头文件
+  - Regex:           '.*'
+    Priority:        3 # 项目内头文件
+
+# 命名空间
+NamespaceIndentation: All
+
+# 其他
+FixNamespaceComments: true
+ReflowComments: true
