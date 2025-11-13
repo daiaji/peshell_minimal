@@ -71,6 +71,4 @@ artifacts/
 # ==================================
 # 我们只跟踪子模块的 commit ID，不跟踪子模块的内容
 # 除非你想把 vendor 目录也作为项目的一部分提交
-vendor/
-
-get_latest_build.sh
+# vendor/

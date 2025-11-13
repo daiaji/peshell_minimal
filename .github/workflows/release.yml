@@ -7,22 +7,22 @@ on:
   push:
     tags:
       - "v*.*.*"
-  
+
   # 2. 手动触发：允许在 Actions 页面手动运行此工作流
   workflow_dispatch:
     inputs:
       tag_name:
-        description: '要创建的标签和版本号 (例如: v1.0.1)'
+        description: "要创建的标签和版本号 (例如: v1.0.1)"
         required: true
         type: string
       release_name:
         description: '发布的标题 (可选, 默认为 "Release [tag_name]")'
         required: false
       body:
-        description: '发布说明 (可选, 支持 Markdown)'
+        description: "发布说明 (可选, 支持 Markdown)"
         required: false
       prerelease:
-        description: '是否标记为预发布版本?'
+        description: "是否标记为预发布版本?"
         required: true
         type: boolean
         default: false
@@ -32,7 +32,7 @@ jobs:
   build-and-release:
     # 指定运行环境为最新的 Windows
     runs-on: windows-latest
-    
+
     # 为此任务授予创建 Release 所需的写入权限
     permissions:
       contents: write
@@ -43,14 +43,15 @@ jobs:
       - name: Checkout repository with submodules
         uses: actions/checkout@v4
         with:
-          submodules: 'recursive'
+          submodules: "recursive"
 
       # 步骤2: 设置 MSVC 开发环境 (x64)
       - name: Setup MSVC environment
         uses: microsoft/setup-msbuild@v1.3
         with:
-          vs-architecture: 'x64'
-      
+          # 修正：使用正确的参数 'msbuild-architecture' 来指定架构
+          msbuild-architecture: "x64"
+
       # 步骤3: 定义版本标签变量
       - name: Set Release Tag Variable
         id: vars
@@ -78,7 +79,7 @@ jobs:
           # 递归拷贝整个 scripts 目录
           xcopy "scripts" "release_package\scripts\" /E /I /Y
         shell: cmd
-      
+
       # 步骤7: 创建 Zip 压缩包
       - name: Create Zip Archive
         id: package

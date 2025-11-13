@@ -116,12 +116,14 @@ std::vector<wchar_t> Utf8ToWide(lua_State* L, int index)
 
 void WideToUtf8(lua_State* L, const wchar_t* wide_str)
 {
-    if (!wide_str) {
+    if (!wide_str)
+    {
         lua_pushnil(L);
         return;
     }
     int size_needed = WideCharToMultiByte(CP_UTF8, 0, wide_str, -1, NULL, 0, NULL, NULL);
-    if (size_needed <= 0) {
+    if (size_needed <= 0)
+    {
         lua_pushstring(L, "");
         return;
     }
@@ -130,36 +132,77 @@ void WideToUtf8(lua_State* L, const wchar_t* wide_str)
     lua_pushstring(L, buffer.data());
 }
 
-
 // --- C++ 函数，用于绑定到 Lua (完整版) ---
 namespace LuaBindings
 {
-    static int pesh_sleep(lua_State* L) { SafeSleepWithMessageLoop((int)luaL_checkinteger(L, 1)); return 0; }
-    static int pesh_process_exists(lua_State* L) { lua_pushinteger(L, ProcUtils_ProcessExists(Utf8ToWide(L, 1).data())); return 1; }
-    static int pesh_process_close(lua_State* L) { lua_pushboolean(L, ProcUtils_ProcessClose(Utf8ToWide(L, 1).data(), (unsigned int)luaL_optinteger(L, 2, 0))); return 1; }
-    static int pesh_process_wait_close(lua_State* L) { lua_pushboolean(L, ProcUtils_ProcessWaitClose(Utf8ToWide(L, 1).data(), (int)luaL_optinteger(L, 2, -1))); return 1; }
-    static int pesh_exec(lua_State* L) {
-        auto command_w = Utf8ToWide(L, 1);
-        auto working_dir_w = Utf8ToWide(L, 2);
-        int show_mode = (int)luaL_optinteger(L, 3, SW_SHOWNORMAL);
-        bool wait = lua_toboolean(L, 4);
-        auto desktop_name_w = Utf8ToWide(L, 5);
-        unsigned int pid = ProcUtils_Exec(command_w.data(), lua_isnoneornil(L, 2) ? nullptr : working_dir_w.data(), show_mode, wait, lua_isnoneornil(L, 5) ? nullptr : desktop_name_w.data());
+    static int pesh_sleep(lua_State* L)
+    {
+        SafeSleepWithMessageLoop((int)luaL_checkinteger(L, 1));
+        return 0;
+    }
+    static int pesh_process_exists(lua_State* L)
+    {
+        lua_pushinteger(L, ProcUtils_ProcessExists(Utf8ToWide(L, 1).data()));
+        return 1;
+    }
+    static int pesh_process_close(lua_State* L)
+    {
+        lua_pushboolean(L, ProcUtils_ProcessClose(Utf8ToWide(L, 1).data(), (unsigned int)luaL_optinteger(L, 2, 0)));
+        return 1;
+    }
+    static int pesh_process_wait_close(lua_State* L)
+    {
+        lua_pushboolean(L, ProcUtils_ProcessWaitClose(Utf8ToWide(L, 1).data(), (int)luaL_optinteger(L, 2, -1)));
+        return 1;
+    }
+    static int pesh_exec(lua_State* L)
+    {
+        auto         command_w      = Utf8ToWide(L, 1);
+        auto         working_dir_w  = Utf8ToWide(L, 2);
+        int          show_mode      = (int)luaL_optinteger(L, 3, SW_SHOWNORMAL);
+        bool         wait           = lua_toboolean(L, 4);
+        auto         desktop_name_w = Utf8ToWide(L, 5);
+        unsigned int pid = ProcUtils_Exec(command_w.data(), lua_isnoneornil(L, 2) ? nullptr : working_dir_w.data(),
+                                          show_mode, wait, lua_isnoneornil(L, 5) ? nullptr : desktop_name_w.data());
         lua_pushinteger(L, pid);
         return 1;
     }
-    static int pesh_log_trace(lua_State* L) { spdlog::trace(luaL_checkstring(L, 1)); return 0; }
-    static int pesh_log_debug(lua_State* L) { spdlog::debug(luaL_checkstring(L, 1)); return 0; }
-    static int pesh_log_info(lua_State* L) { spdlog::info(luaL_checkstring(L, 1)); return 0; }
-    static int pesh_log_warn(lua_State* L) { spdlog::warn(luaL_checkstring(L, 1)); return 0; }
-    static int pesh_log_error(lua_State* L) { spdlog::error(luaL_checkstring(L, 1)); return 0; }
-    static int pesh_log_critical(lua_State* L) { spdlog::critical(luaL_checkstring(L, 1)); return 0; }
-    
+    static int pesh_log_trace(lua_State* L)
+    {
+        spdlog::trace(luaL_checkstring(L, 1));
+        return 0;
+    }
+    static int pesh_log_debug(lua_State* L)
+    {
+        spdlog::debug(luaL_checkstring(L, 1));
+        return 0;
+    }
+    static int pesh_log_info(lua_State* L)
+    {
+        spdlog::info(luaL_checkstring(L, 1));
+        return 0;
+    }
+    static int pesh_log_warn(lua_State* L)
+    {
+        spdlog::warn(luaL_checkstring(L, 1));
+        return 0;
+    }
+    static int pesh_log_error(lua_State* L)
+    {
+        spdlog::error(luaL_checkstring(L, 1));
+        return 0;
+    }
+    static int pesh_log_critical(lua_State* L)
+    {
+        spdlog::critical(luaL_checkstring(L, 1));
+        return 0;
+    }
+
     static int pesh_process_wait(lua_State* L)
     {
-        auto wide_str = Utf8ToWide(L, 1);
-        int timeout_ms = (int)luaL_optinteger(L, 2, -1);
-        unsigned int pid = ProcUtils_ProcessWait(wide_str.data(), timeout_ms);
+        auto         wide_str   = Utf8ToWide(L, 1);
+        int          timeout_ms = (int)luaL_optinteger(L, 2, -1);
+        unsigned int pid        = ProcUtils_ProcessWait(wide_str.data(), timeout_ms);
         lua_pushinteger(L, pid);
         return 1;
     }
@@ -167,10 +210,13 @@ namespace LuaBindings
     static int pesh_process_get_path(lua_State* L)
     {
         unsigned int pid = (unsigned int)luaL_checkinteger(L, 1);
-        wchar_t path_buffer[MAX_PATH];
-        if (ProcUtils_ProcessGetPath(pid, path_buffer, MAX_PATH)) {
+        wchar_t      path_buffer[MAX_PATH];
+        if (ProcUtils_ProcessGetPath(pid, path_buffer, MAX_PATH))
+        {
             WideToUtf8(L, path_buffer);
-        } else {
+        }
+        else
+        {
             lua_pushnil(L);
         }
         return 1;
@@ -178,7 +224,7 @@ namespace LuaBindings
 
     static int pesh_process_get_parent(lua_State* L)
     {
-        auto wide_str = Utf8ToWide(L, 1);
+        auto         wide_str   = Utf8ToWide(L, 1);
         unsigned int parent_pid = ProcUtils_ProcessGetParent(wide_str.data());
         lua_pushinteger(L, parent_pid);
         return 1;
@@ -186,21 +232,54 @@ namespace LuaBindings
 
     static int pesh_process_set_priority(lua_State* L)
     {
-        auto wide_str = Utf8ToWide(L, 1);
+        auto        wide_str          = Utf8ToWide(L, 1);
         const char* priority_char_str = luaL_checkstring(L, 2);
-        wchar_t priority_char = (priority_char_str && *priority_char_str) ? priority_char_str[0] : L'N';
-        bool result = ProcUtils_ProcessSetPriority(wide_str.data(), priority_char);
+        wchar_t     priority_char     = (priority_char_str && *priority_char_str) ? priority_char_str[0] : L'N';
+        bool        result            = ProcUtils_ProcessSetPriority(wide_str.data(), priority_char);
         lua_pushboolean(L, result);
         return 1;
     }
-    
+
     static int pesh_process_close_tree(lua_State* L)
     {
         auto wide_str = Utf8ToWide(L, 1);
-        bool result = ProcUtils_ProcessCloseTree(wide_str.data());
+        bool result   = ProcUtils_ProcessCloseTree(wide_str.data());
         lua_pushboolean(L, result);
         return 1;
     }
+
+    // --- ADDED START: 原生文件/目录复制函数 ---
+    static int pesh_fs_copy(lua_State* L)
+    {
+        auto source_w      = Utf8ToWide(L, 1);
+        auto destination_w = Utf8ToWide(L, 2);
+
+        std::filesystem::path source_path(source_w.data());
+        std::filesystem::path dest_path(destination_w.data());
+
+        try
+        {
+            // 定义复制选项：
+            // - recursive: 如果源是目录，则递归复制
+            // - overwrite_existing: 如果目标文件已存在，则覆盖它
+            auto options = std::filesystem::copy_options::recursive | std::filesystem::copy_options::overwrite_existing;
+
+            std::filesystem::copy(source_path, dest_path, options);
+
+            lua_pushboolean(L, true);
+            return 1;
+        }
+        catch (const std::filesystem::filesystem_error& e)
+        {
+            spdlog::error("Native fs_copy failed: {}", e.what());
+            lua_pushboolean(L, false);
+            // 可以选择性地将错误信息也返回给 Lua
+            // lua_pushstring(L, e.what());
+            // return 2;
+            return 1;
+        }
+    }
+    // --- ADDED END ---
 
 } // namespace LuaBindings
 
@@ -225,25 +304,26 @@ lua_State* InitializeLuaState(const std::string& exe_dir)
     lua_pop(L, 2);
     lua_setglobal(L, "lfs");
 
-    static const struct luaL_Reg pesh_native_lib[] = {
-        {"sleep", LuaBindings::pesh_sleep},
-        {"process_exists", LuaBindings::pesh_process_exists},
-        {"process_close", LuaBindings::pesh_process_close},
-        {"process_wait_close", LuaBindings::pesh_process_wait_close},
-        {"exec", LuaBindings::pesh_exec},
-        {"log_trace", LuaBindings::pesh_log_trace},
-        {"log_debug", LuaBindings::pesh_log_debug},
-        {"log_info", LuaBindings::pesh_log_info},
-        {"log_warn", LuaBindings::pesh_log_warn},
-        {"log_error", LuaBindings::pesh_log_error},
-        {"log_critical", LuaBindings::pesh_log_critical},
-        {"process_wait", LuaBindings::pesh_process_wait},
-        {"process_get_path", LuaBindings::pesh_process_get_path},
-        {"process_get_parent", LuaBindings::pesh_process_get_parent},
-        {"process_set_priority", LuaBindings::pesh_process_set_priority},
-        {"process_close_tree", LuaBindings::pesh_process_close_tree},
-        {NULL, NULL}
-    };
+    static const struct luaL_Reg pesh_native_lib[] = {{"sleep", LuaBindings::pesh_sleep},
+                                                      {"process_exists", LuaBindings::pesh_process_exists},
+                                                      {"process_close", LuaBindings::pesh_process_close},
+                                                      {"process_wait_close", LuaBindings::pesh_process_wait_close},
+                                                      {"exec", LuaBindings::pesh_exec},
+                                                      {"log_trace", LuaBindings::pesh_log_trace},
+                                                      {"log_debug", LuaBindings::pesh_log_debug},
+                                                      {"log_info", LuaBindings::pesh_log_info},
+                                                      {"log_warn", LuaBindings::pesh_log_warn},
+                                                      {"log_error", LuaBindings::pesh_log_error},
+                                                      {"log_critical", LuaBindings::pesh_log_critical},
+                                                      {"process_wait", LuaBindings::pesh_process_wait},
+                                                      {"process_get_path", LuaBindings::pesh_process_get_path},
+                                                      {"process_get_parent", LuaBindings::pesh_process_get_parent},
+                                                      {"process_set_priority", LuaBindings::pesh_process_set_priority},
+                                                      {"process_close_tree", LuaBindings::pesh_process_close_tree},
+                                                      // --- ADDED START: 注册新的 fs_copy 函数 ---
+                                                      {"fs_copy", LuaBindings::pesh_fs_copy},
+                                                      // --- ADDED END ---
+                                                      {NULL, NULL}};
     lua_newtable(L);
     luaL_setfuncs(L, pesh_native_lib, 0);
     lua_setglobal(L, "pesh_native");
@@ -261,7 +341,6 @@ lua_State* InitializeLuaState(const std::string& exe_dir)
 
     return L;
 }
-
 
 // ------------------------------------------------------------------
 // 主程序入口
@@ -353,7 +432,7 @@ int main(int argc, char* argv[])
             }
         }
     }
-    
+
     bool is_main_mode = (argc > 1 && strcmp(argv[1], "main") == 0);
     if (is_main_mode && return_code == 0)
     {

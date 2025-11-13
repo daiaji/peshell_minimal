@@ -6,30 +6,31 @@ on:
   # 1. 自动触发：当推送到 'main' 或 'master' 分支时
   push:
     branches: ["main", "master"]
-  
+
   # 2. 手动触发：允许在 Actions 页面手动运行此工作流
   workflow_dispatch:
 
 # 定义任务
 jobs:
-  build-and-create-artifact:
+  build-and-test: # 将作业名称改为更具描述性的
     # 指定运行环境
     runs-on: windows-latest
-    
+
     # 任务步骤
     steps:
       # 步骤1: 检出代码，并递归检出所有子模块
       - name: Checkout repository with submodules
         uses: actions/checkout@v4
         with:
-          submodules: 'recursive'
+          submodules: "recursive"
 
       # 步骤2: 设置 MSVC 开发环境 (x64)
       - name: Setup MSVC environment
         uses: microsoft/setup-msbuild@v1.3
         with:
-          vs-architecture: 'x64'
-      
+          # 修正：使用正确的参数 'msbuild-architecture' 来指定架构
+          msbuild-architecture: "x64"
+
       # 步骤3: 配置 CMake
       - name: Configure CMake
         run: cmake -S . -B build -G "Visual Studio 17 2022" -A x64
@@ -38,6 +39,14 @@ jobs:
       - name: Build Project
         run: cmake --build build --config Release
 
+      # 新增步骤：运行 Lua API 测试
+      - name: Run Lua API Tests
+        run: |
+          echo "--- Starting Lua API Test Suite ---"
+          build\Release\peshell.exe run scripts\test_suite.lua
+          echo "--- Lua API Test Suite Finished ---"
+        shell: cmd
+
       # 步骤5: 准备发布包
       - name: Prepare Build Package
         run: |
@@ -45,15 +54,11 @@ jobs:
           copy "build\Release\peshell.exe" "build_package\"
           xcopy "scripts" "build_package\scripts\" /E /I /Y
         shell: cmd
-      
-      # 步骤6: 关键修改 -> 上传构建产物 (Artifact)
-      # 这里不再创建 Release，而是上传一个名为 peshell-build-artifact 的产物
+
+      # 步骤6: 上传构建产物 (Artifact)
       - name: Upload Build Artifact
         uses: actions/upload-artifact@v4
         with:
-          # 产物的名称，我们的本地脚本将通过这个名字来找到它
           name: peshell-build-artifact
-          # 要上传的目录路径
           path: build_package/
-          # 产物的保留天数（可选）
           retention-days: 7

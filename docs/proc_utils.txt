@@ -1,135 +1,300 @@
+好的，这是为您生成的 `proc_utils` 库的纯文本（TXT）格式的完整源代码分析文档。
+
+```text
 ================================================================================
-                              proc_utils 技术文档
+ proc_utils 库源代码综合分析报告
 ================================================================================
 
-版本: 1.0
-作者: 根据源码生成
-简介: 本文档详细介绍了 proc_utils 库的功能、编译方法、使用方式以及完整的 API 参考。
+本文档对 `proc_utils` 项目的所有源代码、构建脚本和自动化工作流进行了全面而详尽的分析。
+旨在提供一个深入的技术参考，帮助理解该库的设计理念、实现细节和整体架构。
 
 
---------------------------------------------------------------------------------
-1. 库简介
---------------------------------------------------------------------------------
+1. 项目概述
+================================================================================
 
-`proc_utils` 是一个为 Windows 平台设计的轻量级、无外部依赖的 C++ 进程管理工具库。它通过导出一套纯 C 语言接口，实现了跨语言调用的兼容性，可以被 C/C++、Python、C# 等多种语言轻松集成。
+`proc_utils` 是一个为 Windows 平台设计的轻量级、高性能的进程管理工具库。它以动态链接库 (DLL) 或静态库 (.lib) 的形式提供，并导出一套纯 C 语言风格的 API 接口。这种设计确保了其卓越的跨语言兼容性，可以被 C/C++、Python、C#、Go 等多种支持调用 C-ABI 的语言轻松集成。
 
-该库封装了常见的 Win32 API 调用，旨在简化与进程相关的操作，如查找、启动、终止、等待以及修改进程属性等，为开发者提供一套简洁、稳定且易于使用的函数集。
-
-
---------------------------------------------------------------------------------
-2. 功能特性
---------------------------------------------------------------------------------
-
-- **进程查找**: 根据进程名称或进程ID (PID) 检查进程是否存在，并返回其 PID。
-- **进程执行**: 启动一个新进程，支持配置工作目录、窗口显示模式，并可选择同步等待其执行结束。
-- **进程终止**: 强制结束指定的单个进程，或递归地终止一个完整的进程树（包括所有子进程）。
-- **进程等待**: 提供两种阻塞式等待机制：
-    - 等待，直到指定名称的进程出现。
-    - 等待，直到指定的进程结束。
-- **信息获取**:
-    - 根据 PID 获取进程可执行文件的完整物理路径。
-    - 获取指定进程的父进程 PID。
-- **属性修改**: 动态设置进程的 CPU 优先级（如：低、正常、高、实时等）。
-- **纯 C 接口**: 所有导出函数均采用 `extern "C"` 声明，确保了 ABI (应用二进制接口) 的稳定性与兼容性。
-- **动态与静态库**: 支持编译为动态链接库 (.dll) 和静态链接库 (.lib)，以适应不同项目的需求。
+该库的核心目标是封装复杂繁琐的 Win32 API 调用，为开发者提供一组简洁、稳定且功能强大的函数，用于处理常见的进程操作，如查找、创建、终止、等待和信息查询。同时，它还提供了一个可选的 C++ 头文件级封装（Wrapper），为 C++ 开发者带来更加现代化和面向对象的编程体验。
 
 
---------------------------------------------------------------------------------
-3. 如何编译
---------------------------------------------------------------------------------
+2. 核心功能
+================================================================================
 
-本项目使用 CMake 进行构建，需要一个支持 C++17 的 Windows 编译器环境。
+- **进程查找与枚举**:
+  - 根据进程名或进程ID (PID) 检查单个进程是否存在。
+  - 查找并返回所有同名进程的 PID 列表。
 
-**编译环境要求:**
-- CMake (版本 3.10 或更高)
-- Visual Studio 2017 或更高版本
+- **进程生命周期管理**:
+  - 启动新进程，并支持配置工作目录、窗口显示模式、是否同步等待其结束等选项。
+  - 强制终止指定的单个进程。
+  - 递归终止整个进程树（即终止目标进程及其所有子孙进程）。
 
-**编译步骤:**
+- **同步与等待**:
+  - 阻塞式等待，直到一个指定名称的进程启动。
+  - 阻塞式等待，直到一个指定的进程结束。
+  - 所有等待操作均支持超时设置。
 
-1. **克隆仓库**:
-   git clone <your-repository-url>
-   cd proc_utils
+- **进程信息查询**:
+  - 获取指定进程可执行文件的完整路径。
+  - 获取指定进程的父进程 PID。
+  - (新增) 获取一个包含 PID、父 PID、可执行文件路径、内存使用量和线程数的详细信息结构体。
 
-2. **创建构建目录**:
-   mkdir build
-   cd build
+- **进程属性修改**:
+  - 设置进程的 CPU 优先级（例如：低、正常、高、实时等）。
 
-3. **配置项目 (生成 Visual Studio 解决方案)**:
-
-   **编译动态库 (.dll)** (默认选项):
-   cmake .. -G "Visual Studio 17 2022" -A x64
-
-   **编译静态库 (.lib)**:
-   cmake .. -G "Visual Studio 17 2022" -A x64 -DBUILD_SHARED_LIBS=OFF
-
-4. **编译项目**:
-
-   **通过 CMake 命令行**:
-   cmake --build . --config Release
-
-   **通过 Visual Studio**:
-   用 Visual Studio 打开在 `build` 目录下生成的 `proc_utils.sln` 文件，选择 `Release` 配置，然后生成解决方案。
-
-编译成功后，目标文件将位于 `build\Release` 目录下。
-- **动态库编译产物**: `proc_utils.dll`, `proc_utils.lib` (导入库)
-- **静态库编译产物**: `proc_utils.lib` (静态库)
+- **架构特性**:
+  - 纯 C 接口，保证 ABI 稳定性和跨语言兼容性。
+  - 可选的 C++ 封装，提供 RAII 和面向对象的便利。
+  - 健壮的错误处理，所有失败的 API 调用都会通过 `SetLastError` 设置标准的 Win32 错误码。
+  - 无外部依赖，仅依赖于 Windows 系统自带的头文件和库。
+  - 通过 CMake 实现灵活构建，支持生成动态库 (.dll) 和静态库 (.lib)。
 
 
---------------------------------------------------------------------------------
-4. 如何使用
---------------------------------------------------------------------------------
+3. 项目结构与文件分析
+================================================================================
 
-### 4.1. 在 C/C++ 中使用
+项目采用了清晰的分层结构，将接口、内部实现和核心逻辑分离开来。
 
-你需要 `proc_utils.h` 头文件以及编译生成的 `.lib` 和 `.dll` 文件。
+- **`include/proc_utils.h`**
+  - **角色**: 公共头文件，是库的唯一入口点。
+  - **内容分析**:
+    - `PROC_UTILS_API` 宏定义：处理 `__declspec(dllexport/dllimport)`，以支持动态库的导出和导入，并支持静态链接。
+    - `extern "C"` 块：包裹了所有的 C 语言 API 函数声明，这是实现跨语言兼容性的关键。
+    - `ProcUtils_ProcessInfo` 结构体：定义了用于存储进程详细信息的数据结构。
+    - C API 函数原型：声明了所有用户可以调用的函数，如 `ProcUtils_ProcessExists`, `ProcUtils_Exec` 等。
+    - C++ Wrapper (`namespace ProcUtils`): 在 `#if defined(__cplusplus)` 条件编译块内，提供了一个 `Process` 类，该类封装了 C API，提供了更符合 C++ 风格的用法（如 `std::optional`、`std::vector`、`std::wstring` 等）。
 
-1.  在你的源代码中包含 `proc_utils.h`。
-2.  将 `proc_utils.lib` 添加到项目的链接器输入中。
-3.  确保 `proc_utils.dll` (如果使用动态链接) 在程序运行时可以被找到 (例如，与可执行文件放在同一目录，或位于系统 PATH 中)。
+- **`src/proc_utils_internal.h`**
+  - **角色**: 内部头文件，供项目内部的 .cpp 文件使用，不暴露给最终用户。
+  - **内容分析**:
+    - 头文件包含：统一管理所有需要的 Windows 系统头文件 (`windows.h`, `psapi.h`, `tlhelp32.h`) 和 C++ 标准库头文件。
+    - `ScopedHandle` 类：一个经典的 RAII (Resource Acquisition Is Initialization) 封装类，用于自动管理 `HANDLE` 类型的资源。它能确保在句柄离开作用域时自动调用 `CloseHandle`，极大地增强了代码的健壮性，防止了资源泄漏。
+    - `g_procutils_should_exit`: 一个全局 `std::atomic<bool>` 变量，用于在某些长时间等待的函数中实现安全的退出机制。
+    - `ProcUtils::Internal` 命名空间：声明了所有内部实现的辅助函数，如 `ForEachProcess`, `FindProcess` 等。这是一种良好的封装实践，将实现细节与公共 API 分离。
 
-**示例代码 (`main.cpp`):**
-```cpp
-#include <iostream>
-#include <windows.h>      // For SW_SHOW
-#include "proc_utils.hh"  // 引入头文件
+- **`src/proc_utils_core.cpp`**
+  - **角色**: C API 接口的实现层。
+  - **内容分析**:
+    - `g_procutils_should_exit` 定义：定义并初始化了全局原子标志。
+    - `ProcUtils_MsgWait`：一个带有消息循环的等待函数，用于在阻塞等待时保持 UI 响应。
+    - `TerminateProcessTree`：一个匿名的命名空间内的递归函数，用于实现关闭进程树的功能。
+    - `extern "C"` 函数实现：实现了 `proc_utils.h` 中声明的所有 `ProcUtils_*` 公共函数。这些函数通常作为一层薄薄的包装，进行参数校验，然后调用 `ProcUtils::Internal` 命名空间中的相应核心逻辑函数。
 
-// 链接到 proc_utils.lib
-#pragma comment(lib, "proc_utils.lib")
+- **`src/proc_utils_impl.cpp`**
+  - **角色**: 核心逻辑的实现层。
+  - **内容分析**:
+    - `ProcUtils::Internal` 命名空间：包含了所有核心功能的具体实现。
+    - `ForEachProcess`: 一个高度可复用的函数，使用 `CreateToolhelp32Snapshot` 遍历系统中的所有进程，并通过 `std::function` 回调来处理每个进程。这使得查找、枚举等操作的实现非常简洁。
+    - `GetProcessPath`: 实现了获取进程路径的复杂逻辑。它优先使用现代的 `QueryFullProcessImageNameW` API，如果失败，则回退到使用 `GetProcessImageFileNameW` 并处理设备路径到驱动器号的转换。
+    - `FindProcess`, `FindAllProcesses`, `GetParentProcessId`: 这些函数都基于 `ForEachProcess` 实现，展示了回调模式的强大之处。
+    - `WaitForProcess`: 实现了复杂的等待逻辑，区分等待进程出现和等待进程关闭两种模式，并集成了超时处理和 `ProcUtils_MsgWait` 消息循环。
 
-int main() {
-    const wchar_t* process_name = L"notepad.exe";
+- **`src/proc_utils_info.cpp`**
+  - **角色**: `ProcUtils_ProcessGetInfo` 功能的独立实现文件。
+  - **内容分析**:
+    - 实现了 `GetProcessInfo` 函数，它负责整合多个 Win32 API 调用来填充 `ProcUtils_ProcessInfo` 结构体。
+    - 使用 `OpenProcess` 获取进程句柄。
+    - 调用 `ForEachProcess` 来获取快照信息（父 PID、线程数）。
+    - 调用 `GetProcessMemoryInfo` 来获取内存使用情况（工作集大小）。
+    - 调用 `GetProcessPath` 来获取可执行文件路径。
+    - 将所有信息汇总到输出结构体中。这种将单一复杂功能放到独立文件中的做法有利于代码的维护和组织。
 
-    std::wcout << L"正在检查 " << process_name << L" 是否存在..." << std::endl;
-    unsigned int pid = ProcUtils_ProcessExists(process_name);
+- **`CMakeLists.txt`**
+  - **角色**: 项目的构建配置文件。
+  - **内容分析**:
+    - `option(BUILD_SHARED_LIBS ... ON)`: 定义了一个 CMake 选项，允许用户在配置时选择构建动态库还是静态库，默认为动态库。
+    - `add_library(proc_utils ...)`: 将所有相关的源文件 (`.cpp`) 添加到库目标中，包括了新增的 `proc_utils_info.cpp`。
+    - `target_compile_definitions`: 根据 `BUILD_SHARED_LIBS` 的值，为编译器自动添加 `PROC_UTILS_EXPORTS` 或 `PROC_UTILS_STATIC_LIB` 宏，这是实现 `PROC_UTILS_API` 宏功能的关键。
+    - `target_include_directories`: 正确设置了公共 (`PUBLIC`) 和私有 (`PRIVATE`) 的头文件搜索路径。
+    - `install` 规则：定义了如何将编译好的库、头文件和 CMake 配置文件安装到指定目录，这是创建可分发软件包的良好实践。
 
-    if (pid > 0) {
-        std::wcout << L"进程已存在，PID: " << pid << L"。正在关闭..." << std::endl;
-        ProcUtils_ProcessClose(process_name, 0);
-        ProcUtils_ProcessWaitClose(process_name, 5000); // 等待关闭
-    }
+- **`tests/run_tests.py`**
+  - **角色**: 自动化测试脚本。
+  - **内容分析**:
+    - 使用 Python 的 `ctypes` 模块来加载和调用 C DLL，这完美地展示了库的跨语言调用能力。
+    - `ProcUtils_ProcessInfo` 结构体在 Python 中被重新定义，以匹配 C 语言的内存布局。
+    - `@test_case` 装饰器：封装了每个测试用例的通用逻辑，包括前置清理 (`cleanup_process`)、执行、异常捕获和后置清理，使测试代码非常干净。
+    - 测试覆盖面广：覆盖了进程启动、查找、关闭、等待、超时、路径获取、优先级设置、进程树操作、多进程查找、无效参数处理等多种场景。
+    - `test_get_process_info`: 新增的测试用例，专门验证 `ProcUtils_ProcessGetInfo` 的正确性，检查了返回的 PID、路径、内存和线程数等字段的合理性。
 
-    std::wcout << L"正在启动 " << process_name << L"..." << std::endl;
-    pid = ProcUtils_Exec(process_name, nullptr, SW_SHOW, false, nullptr);
+- **`.github/workflows/ci.yml` & `release.yml`**
+  - **角色**: GitHub Actions 自动化工作流。
+  - **`ci.yml` (持续集成)**:
+    - 触发条件：`push` 或 `pull_request` 到主分支。
+    - 步骤：检出代码 -> 使用 `clang-format` 检查代码格式 -> 设置 MSVC 环境 -> 配置 CMake -> 编译项目（同时开启静态分析） -> 运行 `run_tests.py` 自动化测试。
+  - **`release.yml` (持续部署/发布)**:
+    - 触发条件：推送 `v*` 格式的 Git 标签或手动触发。
+    - 步骤：
+      1. 构建动态库版本 (`-DBUILD_SHARED_LIBS=ON`)。
+      2. 将动态库及相关文件打包成 `proc_utils-shared-vX.Y.Z.zip`。
+      3. **清理构建目录**。
+      4. 构建静态库版本 (`-DBUILD_SHARED_LIBS=OFF`)。
+      5. 将静态库及相关文件打包成 `proc_utils-static-vX.Y.Z.zip`。
+      6. 使用 `softprops/action-gh-release` 动作创建 GitHub Release，并同时上传上述两个 zip 压缩包。
 
-    if (pid > 0) {
-        std::wcout << L"成功启动，PID: " << pid << std::endl;
 
-        wchar_t path;
-        if (ProcUtils_ProcessGetPath(pid, path, 260)) {
-            std::wcout << L"进程路径: " << path << std::endl;
-        }
+4. 架构与设计模式
+================================================================================
 
-        std::wcout << L"等待5秒后关闭进程..." << std::endl;
-        Sleep(5000);
+- **分层架构 (Layered Architecture)**:
+  1. **公共接口层 (C API)**: `proc_utils_core.cpp` 和 `proc_utils.h`。提供稳定、简单的 C 函数。
+  2. **核心逻辑层 (C++)**: `proc_utils_impl.cpp`, `proc_utils_info.cpp` 和 `proc_utils_internal.h`。使用 C++ 的特性（如 RAII、`std::function`）实现功能，隐藏了复杂的 Win32 API 调用。
+  3. **平台 API 层**: 直接调用 Windows SDK 提供的函数。
+  这种分层使得代码易于维护和扩展。例如，未来若要支持 Linux，只需替换核心逻辑层，而公共接口层可以保持不变。
 
-        if (ProcUtils_ProcessClose(process_name, 0)) {
-            std::wcout << L"关闭成功。" << std::endl;
-        } else {
-            std::wcerr << L"错误：关闭失败！" << std::endl;
-        }
-    } else {
-        std::wcerr << L"错误：启动 " << process_name << L" 失败！" << std::endl;
-    }
+- **RAII (Resource Acquisition Is Initialization)**:
+  `ScopedHandle` 类是 RAII 模式的典范应用。它将 `HANDLE` 句柄的生命周期与对象的生命周期绑定，在对象析构时自动释放资源。这从根本上杜绝了因忘记调用 `CloseHandle` 而导致的资源泄漏问题，尤其是在有多个返回路径或可能抛出异常的函数中。
 
-    return 0;
-}
+- **C API Façade (C 接口外观模式)**:
+  整个库可以看作是为内部的 C++ 核心逻辑提供了一个 C 语言的外观。这样做的好处是多方面的：
+  - **ABI 稳定性**: C 的调用约定（ABI）在不同编译器和版本之间非常稳定，而 C++ 的 ABI（特别是名称修饰和异常处理）则不然。
+  - **互操作性**: 几乎所有编程语言都支持与 C 语言进行互操作。
+  - **隐藏实现**: 用户只看到简单的 C 函数，无需了解内部复杂的 C++ 实现细节。
+
+- **回调与策略模式 (Callback / Strategy Pattern)**:
+  `ForEachProcess` 函数是这一模式的体现。它负责处理“如何遍历所有进程”的通用逻辑，而“对每个进程做什么”的具体策略则由调用者通过传递一个 lambda 或函数指针（`std::function`）来决定。这极大地提高了代码的复用性。
+
+
+5. API 接口详解
+================================================================================
+
+以下是 `proc_utils.h` 中定义的所有公共 API 的详细说明。
+
+---
+函数: ProcUtils_ProcessExists
+签名: PROC_UTILS_API unsigned int ProcUtils_ProcessExists(const wchar_t* process_name_or_pid);
+描述: 根据进程名或表示为字符串的 PID 查找进程。
+参数:
+  - process_name_or_pid (const wchar_t*): 要查找的进程的名称 (例如 "notepad.exe") 或 PID 的字符串形式 (例如 "1234")。
+返回值:
+  - 如果找到进程，返回第一个匹配的进程的 PID。
+  - 如果未找到或输入无效，返回 0。失败时会设置 Win32 错误码。
+
+---
+函数: ProcUtils_ProcessClose
+签名: PROC_UTILS_API bool ProcUtils_ProcessClose(const wchar_t* process_name_or_pid, unsigned int exit_code);
+描述: 强制终止一个指定的进程。
+参数:
+  - process_name_or_pid (const wchar_t*): 要终止的进程的名称或 PID 字符串。
+  - exit_code (unsigned int): 进程的退出码。
+返回值:
+  - 成功终止返回 true，否则返回 false。
+
+---
+函数: ProcUtils_ProcessWait
+签名: PROC_UTILS_API unsigned int ProcUtils_ProcessWait(const wchar_t* process_name, int timeout_ms);
+描述: 阻塞当前线程，直到指定名称的进程出现，或超时。
+参数:
+  - process_name (const wchar_t*): 等待出现的进程的名称。
+  - timeout_ms (int): 等待的毫秒数。如果小于 0，则无限期等待。
+返回值:
+  - 进程出现后，返回其 PID。
+  - 如果超时，返回 0。
+
+---
+函数: ProcUtils_ProcessWaitClose
+签名: PROC_UTILS_API bool ProcUtils_ProcessWaitClose(const wchar_t* process_name_or_pid, int timeout_ms);
+描述: 阻塞当前线程，直到指定的进程结束，或超时。
+参数:
+  - process_name_or_pid (const wchar_t*): 等待结束的进程的名称或 PID 字符串。
+  - timeout_ms (int): 等待的毫秒数。如果小于 0，则无限期等待。
+返回值:
+  - 进程正常结束返回 true。
+  - 如果超时或进程不存在，返回 false。
+
+---
+函数: ProcUtils_ProcessGetPath
+签名: PROC_UTILS_API bool ProcUtils_ProcessGetPath(unsigned int pid, wchar_t* out_path, int path_size);
+描述: 获取指定 PID 的进程的可执行文件完整路径。
+参数:
+  - pid (unsigned int): 目标进程的 PID。
+  - out_path (wchar_t*): 用于接收路径的缓冲区。
+  - path_size (int): 缓冲区的大小（以字符为单位）。
+返回值:
+  - 成功获取路径返回 true，否则返回 false。
+
+---
+函数: ProcUtils_Exec
+签名: PROC_UTILS_API unsigned int ProcUtils_Exec(const wchar_t* command, const wchar_t* working_dir, int show_mode, bool wait, const wchar_t* desktop_name);
+描述: 启动一个新进程。
+参数:
+  - command (const wchar_t*): 要执行的命令行。
+  - working_dir (const wchar_t*): 新进程的工作目录，可为 NULL。
+  - show_mode (int): 窗口显示模式 (例如 SW_SHOW, SW_HIDE)。
+  - wait (bool): 如果为 true，则函数会阻塞直到新进程结束。
+  - desktop_name (const wchar_t*): 指定进程运行的桌面，可为 NULL。
+返回值:
+  - 成功启动进程，返回新进程的 PID。
+  - 失败返回 0。
+
+---
+函数: ProcUtils_ProcessGetParent
+签名: PROC_UTILS_API unsigned int ProcUtils_ProcessGetParent(const wchar_t* process_name_or_pid);
+描述: 获取指定进程的父进程 PID。
+参数:
+  - process_name_or_pid (const wchar_t*): 子进程的名称或 PID 字符串。
+返回值:
+  - 成功返回父进程的 PID。
+  - 如果找不到进程或没有父进程，返回 0。
+
+---
+函数: ProcUtils_ProcessSetPriority
+签名: PROC_UTILS_API bool ProcUtils_ProcessSetPriority(const wchar_t* process_name_or_pid, wchar_t priority);
+描述: 设置进程的 CPU 优先级。
+参数:
+  - process_name_or_pid (const wchar_t*): 目标进程的名称或 PID 字符串。
+  - priority (wchar_t): 优先级字符：'L'(低), 'B'(低于正常), 'N'(正常), 'A'(高于正常), 'H'(高), 'R'(实时)。不区分大小写。
+返回值:
+  - 成功设置返回 true，否则返回 false。
+
+---
+函数: ProcUtils_ProcessCloseTree
+签名: PROC_UTILS_API bool ProcUtils_ProcessCloseTree(const wchar_t* process_name_or_pid);
+描述: 终止一个进程及其所有子孙进程。
+参数:
+  - process_name_or_pid (const wchar_t*): 进程树根节点的名称或 PID 字符串。
+返回值:
+  - 成功发送终止信号返回 true，否则返回 false。
+
+---
+函数: ProcUtils_FindAllProcesses
+签名: PROC_UTILS_API int ProcUtils_FindAllProcesses(const wchar_t* process_name, unsigned int* out_pids, int pids_array_size);
+描述: 查找所有具有指定名称的进程。
+参数:
+  - process_name (const wchar_t*): 要查找的进程名称。
+  - out_pids (unsigned int*): 用于存储找到的 PID 的数组。
+  - pids_array_size (int): `out_pids` 数组的大小。
+返回值:
+  - 返回找到的进程总数。如果这个数字大于 `pids_array_size`，则表示缓冲区太小，只有部分 PID 被写入。
+  - 如果出错，返回 -1。
+
+---
+函数: ProcUtils_ProcessGetInfo
+签名: PROC_UTILS_API bool ProcUtils_ProcessGetInfo(unsigned int pid, ProcUtils_ProcessInfo* out_info);
+描述: 获取指定 PID 进程的详细信息。
+参数:
+  - pid (unsigned int): 目标进程的 PID。
+  - out_info (ProcUtils_ProcessInfo*): 指向结构体的指针，用于接收进程信息。
+返回值:
+  - 成功获取信息返回 true，否则返回 false。
+
+
+6. 总结与评价
+================================================================================
+
+`proc_utils` 是一个设计精良、实现健壮、文档和测试都非常完善的 C++ 库。
+
+**优点**:
+1.  **清晰的架构**: 接口与实现分离，公共与私有分离，层次分明。
+2.  **代码健壮性**: 广泛使用 RAII (`ScopedHandle`) 来保证资源安全，错误处理机制清晰。
+3.  **高复用性**: `ForEachProcess` 的回调设计是项目中的一大亮点，避免了大量重复代码。
+4.  **优秀的互操作性**: 纯 C 接口和 C++ Wrapper 的结合，兼顾了兼容性和易用性。
+5.  **完善的自动化**: CI/CD 工作流覆盖了格式检查、编译、静态分析、测试和发布打包，自动化程度非常高，保证了项目质量。
+6.  **全面的测试**: Python 测试脚本覆盖了绝大多数功能和边界情况，是项目质量的重要保障。
+
+**潜在的改进方向**:
+1.  **跨平台支持**: 当前库完全依赖 Win32 API。可以考虑通过宏和条件编译，提供对 Linux 和 macOS 的支持，这将极大地扩展其应用范围。
+2.  **异步操作**: 当前所有等待函数都是阻塞的。可以提供基于回调或 `std::future` 的异步版本，以适应现代异步编程模型。
+3.  **扩展信息查询**: `ProcUtils_ProcessInfo` 可以进一步扩展，包含更多信息，如 CPU 使用时间、I/O 读写字节数、启动时间等（需要使用 `GetProcessTimes`, `GetProcessIoCounters` 等 API）。
+4.  **日志系统**: 对于一个库来说，可以引入一个可选的、可配置的日志系统，方便用户在集成和调试时诊断问题。
+```

@@ -1,0 +1,507 @@
+======================================================================
+                         LuaUnit 中文文档
+======================================================================
+
+版本: 3.4
+主页: https://github.com/bluebird75/luaunit
+作者: Philippe Fremy
+
+关于此文档
+----------------------------------------------------------------------
+本文档根据 luaunit.lua 3.4 版本的源代码生成，旨在为中文用户提供一份
+全面、详细的使用指南。文档采用纯文本格式，不包含任何 Markdown 语法。
+
+
+目录
+----------------------------------------------------------------------
+1.  简介
+2.  快速入门
+3.  编写测试
+    3.1. 测试发现
+    3.2. 测试函数 (Test Functions)
+    3.3. 测试类 (Test Classes)
+    3.4. 测试固件 (Fixtures)
+        - setUp / tearDown
+        - setupClass / teardownClass
+        - setupSuite / teardownSuite
+4.  断言函数 (Assertion Functions)
+    4.1.  相等性断言
+    4.2.  布尔与 Nil 值断言
+    4.3.  字符串断言
+    4.4.  类型断言
+    4.5.  错误断言
+    4.6.  表(Table)断言
+    4.7.  科学计算断言
+    4.8.  测试控制函数
+5.  运行测试
+    5.1.  命令行接口
+    5.2.  编程式运行
+6.  输出格式
+7.  配置
+8.  兼容性
+
+
+1. 简介
+----------------------------------------------------------------------
+LuaUnit 是一个为 Lua 设计的 xUnit 风格的单元测试框架。它受到 JUnit 和
+Python 的 unittest 模块的启发，提供了丰富的功能来帮助开发者编写、组织
+和运行测试用例。
+
+主要特性：
+-   简单易用，易于集成。
+-   支持面向过程的测试函数和面向对象的测试类。
+-   丰富的断言函数库。
+-   支持 setUp/tearDown 等测试固件。
+-   多种输出格式，包括文本、TAP 和 JUnit XML，便于 CI/CD 集成。
+-   灵活的命令行接口，可以筛选、重复和随机执行测试。
+
+
+2. 快速入门
+----------------------------------------------------------------------
+下面是一个简单的例子，展示了如何编写和运行一个基本的测试。
+
+步骤 1: 创建测试文件 `my_test.lua`
+   将以下内容保存到 `my_test.lua` 文件中。
+
+   -- 引入 luaunit 模块
+   local lu = require("luaunit")
+
+   -- 这是一个简单的测试函数，它会成功
+   function testAddition()
+       lu.assertEquals(2 + 2, 4)
+   end
+
+   -- 这是另一个测试函数，它会失败
+   function testFailedAssertion()
+       lu.assertEquals(2 + 2, 5, "数学计算出错了！")
+   end
+   
+   -- 这是一个测试类
+   TestCalculator = {}
+   function TestCalculator:testSubtraction()
+       lu.assertEquals(5 - 3, 2)
+   end
+
+   -- 运行测试
+   os.exit(lu.run())
+
+步骤 2: 运行测试
+   在您的终端中，执行以下命令：
+   
+   lua my_test.lua
+
+步骤 3: 查看结果
+   您将看到类似以下的输出：
+
+   .F.
+   =========================================================
+   Failed tests:
+   -------------
+   1) testFailedAssertion
+   数学计算出错了！
+   expected: 5
+   actual: 4
+   stack traceback:
+           my_test.lua:11: in function 'testFailedAssertion'
+
+   Ran 3 tests in 0.001 seconds, 2 successes, 1 failure
+
+
+3. 编写测试
+----------------------------------------------------------------------
+
+3.1. 测试发现
+LuaUnit 通过扫描全局环境来自动发现测试。一个函数或一个类被识别为测试
+的条件是，其名称以 "test" 或 "Test" 开头。
+
+3.2. 测试函数 (Test Functions)
+最简单的测试形式是全局测试函数。任何名称以 "test" 或 "Test" 开头的全局
+函数都将被视为一个独立的测试用例。
+
+   function testMyFeature()
+       -- 断言代码
+   end
+
+3.3. 测试类 (Test Classes)
+为了更好地组织相关的测试，您可以将它们组织在测试类中。一个测试类在
+LuaUnit 中是一个全局的表(Table)，其名称以 "Test" 开头。类中的测试方法
+是该表内的函数，其名称同样以 "test" 或 "Test" 开头。
+
+   -- 定义一个测试类 (一个 Lua Table)
+   TestMyModule = {}
+
+   -- 定义一个测试方法
+   function TestMyModule:testMethodOne()
+       -- `self` 指向 TestMyModule 表
+       self.value = 1
+       lu.assertEquals(self.value, 1)
+   end
+
+   function TestMyModule:testMethodTwo()
+       -- 在这个方法中 self.value 是 nil，因为每个测试方法都在独立的实例上下文中运行
+       lu.assertIsNil(self.value)
+   end
+
+3.4. 测试固件 (Fixtures)
+固件用于设置测试前和清理测试后的环境。LuaUnit 支持三个级别的固件。
+
+- setUp / tearDown
+  这两个方法在测试类中定义，它们会在 *每个* 测试方法执行前后运行。
+  `setUp` 用于创建每个测试都需要的新鲜环境，`tearDown` 用于清理。
+
+   TestMyClassWithFixtures = {}
+
+   function TestMyClassWithFixtures:setUp()
+       -- 在每个测试方法运行前执行
+       self.resource = "initialized"
+   end
+
+   function TestMyClassWithFixtures:testOne()
+       lu.assertEquals(self.resource, "initialized")
+   end
+
+   function TestMyClassWithFixtures:testTwo()
+       lu.assertEquals(self.resource, "initialized")
+   end
+
+   function TestMyClassWithFixtures:tearDown()
+       -- 在每个测试方法运行后执行
+       self.resource = nil
+   end
+
+- setupClass / teardownClass
+  这两个方法在测试类中定义，它们会在该类中 *所有* 测试方法开始执行前
+  和全部执行完毕后各运行一次。适用于昂贵的、可共享的初始化和清理操作。
+
+   TestMyClassWithClassFixtures = {}
+
+   function TestMyClassWithClassFixtures:setupClass()
+       -- 在该类所有测试开始前执行一次
+       print("Initializing heavy resource...")
+       self.db_connection = "connected"
+   end
+
+   function TestMyClassWithClassFixtures:testDbRead()
+       lu.assertEquals(self.db_connection, "connected")
+   end
+
+   function TestMyClassWithClassFixtures:teardownClass()
+       -- 在该类所有测试结束后执行一次
+       print("Closing heavy resource...")
+       self.db_connection = nil
+   end
+
+- setupSuite / teardownSuite
+  这两个是全局函数，它们会在整个测试套件（所有测试文件和测试类）开始
+  执行前和全部执行完毕后各运行一次。
+
+   function setupSuite()
+       print("整个测试套件开始！")
+   end
+
+   function teardownSuite()
+       print("整个测试套件结束！")
+   end
+
+
+4. 断言函数 (Assertion Functions)
+----------------------------------------------------------------------
+断言是测试的核心，用于验证代码的行为是否符合预期。如果断言失败，
+当前测试将立即停止并被标记为失败。所有断言函数都可以接受一个可选的
+`extra_msg_or_nil` 参数，该字符串将在断言失败时附加到错误消息之前。
+
+4.1. 相等性断言
+
+- assertEquals(actual, expected, extra_msg_or_nil, doDeepAnalysis)
+  断言 `actual` 和 `expected` 的值和类型都相等。
+  对于表(Table)，它会深度递归比较所有键和值。
+  `doDeepAnalysis` 是一个可选布尔值，用于强制对表进行深入差异分析。
+
+- assertNotEquals(actual, expected, extra_msg_or_nil)
+  断言 `actual` 和 `expected` 的值或类型不相等。
+
+- assertAlmostEquals(actual, expected, margin, extra_msg_or_nil)
+  断言两个浮点数 `actual` 和 `expected` 近似相等。
+  `margin` 是可选的允许误差范围，默认为 `luaunit.EPS`。
+
+- assertNotAlmostEquals(actual, expected, margin, extra_msg_or_nil)
+  断言两个浮点数 `actual` 和 `expected` 不近似相等。
+
+- assertIs(actual, expected, extra_msg_or_nil)
+  断言 `actual` 和 `expected` 是同一个对象（引用相等）。主要用于表。
+
+- assertNotIs(actual, expected, extra_msg_or_nil)
+  断言 `actual` 和 `expected` 不是同一个对象。
+
+- assertItemsEquals(actual, expected, extra_msg_or_nil)
+  断言两个表 `actual` 和 `expected` 包含相同的元素，不关心顺序和键。
+
+4.2. 布尔与 Nil 值断言
+
+- assertIsTrue(value, extra_msg_or_nil)
+  断言 `value` 严格等于 `true`。
+
+- assertIsFalse(value, extra_msg_or_nil)
+  断言 `value` 严格等于 `false`。
+
+- assertNotIsTrue(value, extra_msg_or_nil)
+  断言 `value` 不等于 `true`。
+
+- assertNotIsFalse(value, extra_msg_or_nil)
+  断言 `value` 不等于 `false`。
+
+- assertEvalToTrue(value, extra_msg_or_nil)
+  断言 `value` 在布尔上下文中为真（即，不是 `false` 也不是 `nil`）。
+
+- assertEvalToFalse(value, extra_msg_or_nil)
+  断言 `value` 在布尔上下文中为假（即，是 `false` 或 `nil`）。
+
+- assertIsNil(value, extra_msg_or_nil)
+  断言 `value` 是 `nil`。
+
+- assertNotIsNil(value, extra_msg_or_nil)
+  断言 `value` 不是 `nil`。
+
+4.3. 字符串断言
+
+- assertStrContains(str, sub, isPattern, extra_msg_or_nil)
+  断言字符串 `str` 包含子串 `sub`。
+  如果 `isPattern` 为 `true`，则 `sub` 被视为一个 Lua 模式进行匹配。
+
+- assertNotStrContains(str, sub, isPattern, extra_msg_or_nil)
+  断言字符串 `str` 不包含子串 `sub`。
+
+- assertStrIContains(str, sub, extra_msg_or_nil)
+  断言字符串 `str` 包含子串 `sub`（忽略大小写）。
+
+- assertNotStrIContains(str, sub, extra_msg_or_nil)
+  断言字符串 `str` 不包含子串 `sub`（忽略大小写）。
+
+- assertStrMatches(str, pattern, start, final, extra_msg_or_nil)
+  断言整个字符串 `str` 匹配 Lua 模式 `pattern`。
+
+4.4. 类型断言
+LuaUnit 动态生成了一系列 `assertIs<Type>` 和 `assertNotIs<Type>` 函数。
+
+- assertIsNumber(value, extra_msg_or_nil)
+- assertIsString(value, extra_msg_or_nil)
+- assertIsTable(value, extra_msg_or_nil)
+- assertIsBoolean(value, extra_msg_or_nil)
+- assertIsFunction(value, extra_msg_or_nil)
+- assertIsUserdata(value, extra_msg_or_nil)
+- assertIsThread(value, extra_msg_or_nil)
+
+以及它们的否定形式：
+- assertNotIsNumber(value, extra_msg_or_nil)
+- assertNotIsString(value, extra_msg_or_nil)
+- ... 等等
+
+4.5. 错误断言
+
+- assertError(func, ...)
+  断言调用函数 `func` 并传入后续参数 `...` 会引发一个错误。
+
+- assertErrorMsgEquals(expectedMsg, func, ...)
+  断言调用 `func` 引发的错误消息与 `expectedMsg` 完全相同。
+
+- assertErrorMsgContains(partialMsg, func, ...)
+  断言调用 `func` 引发的错误消息包含子串 `partialMsg`。
+
+- assertErrorMsgMatches(pattern, func, ...)
+  断言调用 `func` 引发的错误消息匹配 Lua 模式 `pattern`。
+
+- assertErrorMsgContentEquals(expectedMsg, func, ...)
+  与 `assertErrorMsgEquals` 类似，但会忽略错误消息中 "file:line: " 前缀。
+
+4.6. 表(Table)断言
+
+- assertTableContains(t, element, extra_msg_or_nil)
+  断言表 `t` 的值中包含 `element`。
+
+- assertNotTableContains(t, element, extra_msg_or_nil)
+  断言表 `t` 的值中不包含 `element`。
+
+4.7. 科学计算断言
+
+- assertIsNaN(value, extra_msg_or_nil)
+  断言 `value` 是 "Not a Number"。
+
+- assertNotIsNaN(value, extra_msg_or_nil)
+  断言 `value` 不是 "Not a Number"。
+
+- assertIsInf(value, extra_msg_or_nil)
+  断言 `value` 是正无穷或负无穷。
+
+- assertIsPlusInf(value, extra_msg_or_nil)
+  断言 `value` 是正无穷。
+
+- assertIsMinusInf(value, extra_msg_or_nil)
+  断言 `value` 是负无穷。
+
+- assertNotIsInf(value, extra_msg_or_nil)
+  断言 `value` 不是无穷大。
+
+- assertIsPlusZero(value, extra_msg_or_nil)
+- assertIsMinusZero(value, extra_msg_or_nil)
+  断言 `value` 是正零或负零。
+
+4.8. 测试控制函数
+
+- fail(msg)
+  无条件地使当前测试失败，并显示消息 `msg`。
+
+- failIf(cond, msg)
+  如果条件 `cond` 为真，则使测试失败。
+
+- skip(msg)
+  跳过当前测试，并显示消息 `msg`。测试结果中会标记为 "skipped"。
+
+- skipIf(cond, msg)
+  如果条件 `cond` 为真，则跳过当前测试。
+
+- runOnlyIf(cond, msg)
+  如果条件 `cond` 为假，则跳过当前测试。
+
+- success()
+  立即以成功状态结束当前测试。
+
+- successIf(cond)
+  如果条件 `cond` 为真，则立即以成功状态结束当前测试。
+
+
+5. 运行测试
+----------------------------------------------------------------------
+
+5.1. 命令行接口
+您可以直接通过命令行运行包含 LuaUnit 测试的 Lua 脚本，并附带各种选项。
+
+用法: lua <your_test_suite.lua> [options] [testname1 [testname2] ... ]
+
+选项:
+  -h, --help:             打印帮助信息
+  --version:              打印版本信息
+  -v, --verbose:          增加输出的详细程度
+  -q, --quiet:            将输出详细程度设置为最低
+  -e, --error:            在遇到第一个错误时停止
+  -f, --failure:          在遇到第一个失败或错误时停止
+  -s, --shuffle:          在运行前随机打乱测试顺序
+  -o, --output OUTPUT:    设置输出类型 (text, tap, junit, nil)
+  -n, --name NAME:        仅用于 junit 输出，指定 XML 文件名(必需)
+  -r, --repeat NUM:       将所有测试重复执行 NUM 次
+  -p, --pattern PATTERN:  仅执行名称匹配 Lua 模式 PATTERN 的测试
+  -x, --exclude PATTERN:  排除名称匹配 Lua 模式 PATTERN 的测试
+  testname1, ... :        指定要运行的测试名称，可以是函数名、类名
+                          或 `ClassName.methodName`
+
+环境变量:
+* LUAUNIT_OUTPUT:      等同于 --output
+* LUAUNIT_JUNIT_FNAME: 等同于 --name
+
+示例：
+   # 运行所有测试
+   lua my_test.lua
+
+   # 详细模式运行
+   lua my_test.lua -v
+
+   # 只运行 testAddition 函数和 TestCalculator 类中的所有测试
+   lua my_test.lua testAddition TestCalculator
+
+   # 只运行 TestCalculator 类中的 testSubtraction 方法
+   lua my_test.lua TestCalculator.testSubtraction
+
+   # 运行名称中包含 "Addition" 的所有测试
+   lua my_test.lua -p Addition
+
+5.2. 编程式运行
+除了命令行，您还可以通过代码来驱动测试。
+
+- luaunit.run(...)
+  这是最常用的方法。它会解析传入的参数（如同命令行一样）或 `arg` 全局
+  变量，然后自动发现并运行测试。脚本的返回值应设为 `luaunit.run()` 的
+  返回值，以便向 shell 报告正确的退出码。
+  
+  -- file: my_tests.lua
+  local lu = require("luaunit")
+  -- ... 定义测试 ...
+  os.exit(lu.run())
+
+- luaunit.runSuiteByInstances(listOfNameAndInst, commandLineArguments)
+  这是一个更高级的接口，允许您精确控制要运行的测试实例列表。
+  `listOfNameAndInst` 是一个表，每个元素都是 `{ "名称", 实例 }` 的形式。
+  
+   local lu = require("luaunit")
+   TestA = {}
+   function TestA:test1() lu.assertTrue(true) end
+   function myFuncTest() lu.assertTrue(true) end
+
+   local tests_to_run = {
+       { "TestA", TestA },
+       { "myFuncTest", myFuncTest }
+   }
+   -- 运行指定的测试，并模拟命令行参数 "-v"
+   lu.runSuiteByInstances(tests_to_run, {"-v"})
+
+
+6. 输出格式
+----------------------------------------------------------------------
+通过 `-o` 或 `--output` 命令行参数，或 `LUAUNIT_OUTPUT` 环境变量，可以
+选择不同的输出格式。
+
+- text (默认)
+  人类可读的格式。在非详细模式下，成功是 `.`，失败是 `F`，错误是 `E`。
+  在详细模式下，会打印每个测试的名称和结果。
+
+- tap (Test Anything Protocol)
+  一种机器可读的格式，广泛用于各种测试工具的集成。
+
+- junit
+  生成与 Apache Ant JUnit 报告兼容的 XML 文件。这对于 Jenkins, GitLab CI,
+  GitHub Actions 等 CI/CD 系统非常有用。使用此格式时，必须用 `-n` 或
+  `--name` 参数指定输出文件名。
+
+- nil
+  不产生任何输出。只通过程序的退出码来判断测试结果（0 表示成功，非 0
+  表示失败）。
+
+
+7. 配置
+----------------------------------------------------------------------
+LuaUnit 模块本身有一些可配置的全局属性，您可以在运行测试前修改它们。
+
+- lu.ORDER_ACTUAL_EXPECTED (默认: true)
+  如果为 `true`，`assertEquals` 失败消息是 `expected: A, actual: B`。
+  如果为 `false`，则是 `expected: B, actual: A`。这只是显示偏好。
+
+- lu.PRINT_TABLE_REF_IN_ERROR_MSG (默认: false)
+  如果为 `true`，在错误消息中打印表时，会附带其内存地址，有助于区分
+  不同的表实例。
+
+- lu.LINE_LENGTH (默认: 80)
+  `prettystr` 函数在格式化表时，如果单行表示超过此长度，会切换到多行
+  格式。
+
+- lu.EPS (默认: 动态计算)
+  在不提供 `margin` 参数的情况下，`assertAlmostEquals` 使用的默认误差。
+  LuaUnit 会尝试根据 Lua 解释器的浮点数精度（单精度或双精度）来设置
+  一个合理的默认值。
+
+- lu.STRIP_EXTRA_ENTRIES_IN_STACK_TRACE (默认: 0)
+  如果 LuaUnit 被其他框架调用，可以增加此值以从堆栈跟踪中移除额外的
+  无关层级。
+
+
+8. 兼容性
+----------------------------------------------------------------------
+为了兼容旧版本的 LuaUnit 和其他编码风格，许多断言函数都有别名。
+
+- 驼峰式 (CamelCase) -> 下划线式 (snake_case)
+  `assertEquals` -> `assert_equals`
+  `assertIsTrue` -> `assert_is_true`
+
+- 旧式别名
+  `assertIsNumber` -> `assertNumber` / `assert_number`
+  `assertIsNil` -> `assertNil` / `assert_nil`
+  
+这些别名功能完全相同，您可以根据团队的编码规范选择使用。
+`wrapFunctions()` 函数在旧版本中是必需的，但现在已废弃，不起任何作用。
