@@ -7,6 +7,40 @@ local lfs = require("lfs")
 local log = require("pesh-api.log")
 
 --[[
+@description 递归创建目录，类似于 `mkdir -p`。
+@param path string: 要创建的目录的完整路径。
+@return boolean, string: 成功返回 true，失败返回 false 和错误信息。
+]]
+local function mkdirs(path)
+    -- lfs.attributes() 可以检查路径是否存在及其类型
+    local attr = lfs.attributes(path)
+
+    -- 如果路径已存在且是目录，则无需操作
+    if attr and attr.mode == "directory" then
+        return true
+    end
+
+    -- 如果路径存在但不是目录（例如是个文件），则返回错误
+    if attr then
+        return false, "Path exists but is not a directory: " .. path
+    end
+
+    -- 找到父目录
+    local parent_path = path:match("(.+)[\\/][^\\/]+")
+
+    -- 如果有父目录，并且父目录不是根目录（如 C:\），则递归创建父目录
+    if parent_path and parent_path ~= "" and parent_path:match(":") then
+        local success, err = mkdirs(parent_path)
+        if not success then
+            return false, err
+        end
+    end
+
+    -- 创建当前目录
+    return lfs.mkdir(path)
+end
+
+--[[
 @description 初始化 PE 的用户环境，创建必要的文件夹。
              这对应于 PECMD 的 `INIT` 命令的核心功能。
 ]]
@@ -34,15 +68,12 @@ function M.initialize()
     for _, dir in ipairs(directories) do
         -- 构造完整路径，并将 / 替换为 \
         local full_path = (user_profile .. "/" .. dir):gsub("/", "\\")
-        log.debug("Creating directory: ", full_path)
+        log.debug("Ensuring directory exists: ", full_path)
 
-        -- 使用 lfs 创建目录，lfs.mkdir 会自动创建所有父级目录
-        local success, err = lfs.mkdir(full_path)
+        -- 使用我们新的递归创建函数
+        local success, err = mkdirs(full_path)
         if not success then
-            -- 检查错误是否是 "File exists"，如果是，则忽略
-            if not (err and err:find("exists")) then
-                log.warn("Could not create directory '", full_path, "': ", tostring(err))
-            end
+            log.warn("Could not create directory '", full_path, "': ", tostring(err))
         end
     end
 
