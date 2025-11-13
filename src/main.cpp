@@ -31,14 +31,11 @@ void InitializeLogger(const std::string& exe_dir)
         std::vector<spdlog::sink_ptr> sinks;
 
         // sink 1: 控制台输出
-        // 关键修改：移除了 #if defined(_DEBUG) 条件，
-        // 现在无论 Debug 还是 Release 模式都会创建控制台 sink。
         auto console_sink = std::make_shared<spdlog::sinks::stdout_color_sink_mt>();
         console_sink->set_level(spdlog::level::trace); // 控制台显示所有级别的日志
         sinks.push_back(console_sink);
 
         // sink 2: 文件输出
-        // 构造日志文件名，例如 "peshell_2023-10-27.log"
         auto        t  = std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());
         std::tm     tm = *std::localtime(&t);
         std::string log_filename =
@@ -46,20 +43,26 @@ void InitializeLogger(const std::string& exe_dir)
             std::to_string(tm.tm_mon + 1) + "-" + std::to_string(tm.tm_mday) + ".log";
         
         std::filesystem::path log_path = std::filesystem::path(exe_dir) / "logs";
-        std::filesystem::create_directory(log_path); // 确保 logs 目录存在
+        std::filesystem::create_directory(log_path);
 
         auto file_sink = std::make_shared<spdlog::sinks::basic_file_sink_mt>((log_path / log_filename).string(), true);
-        file_sink->set_level(spdlog::level::info); // 文件中记录 info 及以上级别
+        
+        // ########## 关键修改 ##########
+        // 将文件接收器的级别也设置为 trace，以确保所有日志都能被写入。
+        file_sink->set_level(spdlog::level::trace);
+        // ############################
+
         sinks.push_back(file_sink);
 
-        // 创建一个组合了多个 sink 的 logger
         auto logger = std::make_shared<spdlog::logger>("peshell", begin(sinks), end(sinks));
-        logger->set_level(spdlog::level::trace); // 全局级别设为最低，由 sink 控制实际输出
-        logger->flush_on(spdlog::level::info);   // 当记录 info 级别时自动刷新到文件
+        logger->set_level(spdlog::level::trace);
 
-        // 设置为默认 logger，方便全局调用 spdlog::info(...)
+        // 将刷新策略设置为 trace 级别。
+        // 这意味着任何日志一旦被记录，就会立即写入文件。
+        logger->flush_on(spdlog::level::trace);
+
         spdlog::set_default_logger(logger);
-        spdlog::info("Logger initialized successfully. Outputting to console and file.");
+        spdlog::info("Logger initialized successfully. Outputting to console and file. Flush policy: TRACE.");
     }
     catch (const spdlog::spdlog_ex& ex)
     {
@@ -217,7 +220,6 @@ namespace LuaBindings
 // 主程序入口
 // ------------------------------------------------------------------
 
-// 关键修改：使用标准的 main 入口点，以便在所有模式下都能获得控制台
 int main(int argc, char* argv[])
 {
     // --- 智能定位路径 ---
@@ -266,7 +268,7 @@ int main(int argc, char* argv[])
         {"process_close", LuaBindings::pesh_process_close},
         {"process_wait_close", LuaBindings::pesh_process_wait_close},
         {"exec", LuaBindings::pesh_exec},
-        // --- 新增日志绑定 ---
+        // --- 日志绑定 ---
         {"log_trace", LuaBindings::pesh_log_trace},
         {"log_debug", LuaBindings::pesh_log_debug},
         {"log_info", LuaBindings::pesh_log_info},
