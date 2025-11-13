@@ -7,3 +7,6 @@
 [submodule "vendor/lfs"]
 	path = vendor/lfs
 	url = https://github.com/lunarmodules/luafilesystem.git
+[submodule "vendor/spdlog"]
+	path = vendor/spdlog
+	url = https://github.com/gabime/spdlog.git

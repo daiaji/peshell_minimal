@@ -21,6 +21,11 @@ endif()
 # ----------------------------------------------------
 set(VENDOR_DIR ${CMAKE_CURRENT_SOURCE_DIR}/vendor)
 
+# --- 0. spdlog (作为 header-only 库添加) ---
+# spdlog 默认是 header-only，我们直接将其 include 目录添加到全局
+add_subdirectory(${VENDOR_DIR}/spdlog)
+
+
 # --- 1. LuaJIT (外部构建，并精确拷贝所需产物) ---
 set(LUAJIT_SOURCE_DIR ${VENDOR_DIR}/luajit2/src)
 set(LUAJIT_INSTALL_DIR ${CMAKE_BINARY_DIR}/luajit-install)
@@ -103,8 +108,12 @@ set_source_files_properties(${VENDOR_DIR}/lfs/src/lfs.c PROPERTIES
 # ----------------------------------------------------
 # 创建主可执行文件目标
 # ----------------------------------------------------
-# 添加 WIN32 关键字，自动处理 main/WinMain 入口点和链接器子系统
-add_executable(peshell WIN32 src/main.cpp)
+# 关键修改：移除了 WIN32 关键字。
+# 这会使 CMake 在所有模式下都默认生成一个控制台应用程序。
+add_executable(peshell src/main.cpp)
+
+# 关键修改：移除了为 Release 模式设置 /SUBSYSTEM:WINDOWS 的部分。
+# 现在 Release 版本也会是一个控制台程序。
 
 # ----------------------------------------------------
 # 链接所有依赖项到主目标
@@ -117,6 +126,8 @@ target_link_libraries(peshell PRIVATE
     # 链接 Windows 平台必需的库
     user32.lib
     psapi.lib
+    # 链接 spdlog (虽然是 header-only, 但好习惯是明确链接)
+    spdlog::spdlog
 )
 
 # ----------------------------------------------------

@@ -4,6 +4,7 @@
 local M = {}
 local process = require("pesh-api.process")
 local async = require("pesh-api.async")
+local log = require("pesh-api.log")
 
 --[[
 @description 加载并锁定一个程序作为系统外壳。
@@ -13,7 +14,7 @@ local async = require("pesh-api.async")
 ]]
 function M.lock_shell(shell_path)
     if not shell_path then
-        print("Error in lock_shell: shell_path is required.")
+        log.error("Error in lock_shell: shell_path is required.")
         return
     end
 
@@ -21,7 +22,7 @@ function M.lock_shell(shell_path)
     local _, _, shell_name = shell_path:find("([^\\\\]+)$")
     shell_name = shell_name or shell_path
 
-    print("SHELL: Locking shell process '" .. shell_name .. "'...")
+    log.info("SHELL: Locking shell process '", shell_name, "'...")
 
     -- 进入守护循环
     while true do
@@ -29,13 +30,15 @@ function M.lock_shell(shell_path)
         local shell_process = process.find(shell_name)
 
         if not shell_process then
-            print("SHELL: Shell process not found, attempting to restart...")
+            log.warn("SHELL: Shell process not found, attempting to restart...")
             local new_proc = process.exec_async({ command = shell_path })
             if new_proc then
-                print("SHELL: Shell process restarted with PID: " .. new_proc.pid)
+                log.info("SHELL: Shell process restarted with PID: ", new_proc.pid)
             else
-                print("SHELL: Failed to restart shell process!")
+                log.error("SHELL: Failed to restart shell process!")
             end
+        else
+            log.trace("SHELL: Guardian check passed, shell process (PID: ", shell_process.pid, ") is running.")
         end
 
         -- 每 3 秒检查一次
