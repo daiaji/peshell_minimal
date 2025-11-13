@@ -131,7 +131,7 @@ target_link_libraries(peshell PRIVATE
 )
 
 # ----------------------------------------------------
-# 构建后事件：拷贝 scripts 目录
+# 构建后事件：拷贝 scripts 和 modules 目录
 # ----------------------------------------------------
 add_custom_command(
     TARGET peshell POST_BUILD
@@ -139,4 +139,11 @@ add_custom_command(
             "${CMAKE_CURRENT_SOURCE_DIR}/scripts"
             "$<TARGET_FILE_DIR:peshell>/scripts"
     COMMENT "Copying scripts to output directory..."
+)
+
+add_custom_command(
+    TARGET peshell POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E make_directory
+            "$<TARGET_FILE_DIR:peshell>/modules"
+    COMMENT "Creating modules directory..."
 )

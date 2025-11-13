@@ -1,0 +1,135 @@
+================================================================================
+                              proc_utils 技术文档
+================================================================================
+
+版本: 1.0
+作者: 根据源码生成
+简介: 本文档详细介绍了 proc_utils 库的功能、编译方法、使用方式以及完整的 API 参考。
+
+
+--------------------------------------------------------------------------------
+1. 库简介
+--------------------------------------------------------------------------------
+
+`proc_utils` 是一个为 Windows 平台设计的轻量级、无外部依赖的 C++ 进程管理工具库。它通过导出一套纯 C 语言接口，实现了跨语言调用的兼容性，可以被 C/C++、Python、C# 等多种语言轻松集成。
+
+该库封装了常见的 Win32 API 调用，旨在简化与进程相关的操作，如查找、启动、终止、等待以及修改进程属性等，为开发者提供一套简洁、稳定且易于使用的函数集。
+
+
+--------------------------------------------------------------------------------
+2. 功能特性
+--------------------------------------------------------------------------------
+
+- **进程查找**: 根据进程名称或进程ID (PID) 检查进程是否存在，并返回其 PID。
+- **进程执行**: 启动一个新进程，支持配置工作目录、窗口显示模式，并可选择同步等待其执行结束。
+- **进程终止**: 强制结束指定的单个进程，或递归地终止一个完整的进程树（包括所有子进程）。
+- **进程等待**: 提供两种阻塞式等待机制：
+    - 等待，直到指定名称的进程出现。
+    - 等待，直到指定的进程结束。
+- **信息获取**:
+    - 根据 PID 获取进程可执行文件的完整物理路径。
+    - 获取指定进程的父进程 PID。
+- **属性修改**: 动态设置进程的 CPU 优先级（如：低、正常、高、实时等）。
+- **纯 C 接口**: 所有导出函数均采用 `extern "C"` 声明，确保了 ABI (应用二进制接口) 的稳定性与兼容性。
+- **动态与静态库**: 支持编译为动态链接库 (.dll) 和静态链接库 (.lib)，以适应不同项目的需求。
+
+
+--------------------------------------------------------------------------------
+3. 如何编译
+--------------------------------------------------------------------------------
+
+本项目使用 CMake 进行构建，需要一个支持 C++17 的 Windows 编译器环境。
+
+**编译环境要求:**
+- CMake (版本 3.10 或更高)
+- Visual Studio 2017 或更高版本
+
+**编译步骤:**
+
+1. **克隆仓库**:
+   git clone <your-repository-url>
+   cd proc_utils
+
+2. **创建构建目录**:
+   mkdir build
+   cd build
+
+3. **配置项目 (生成 Visual Studio 解决方案)**:
+
+   **编译动态库 (.dll)** (默认选项):
+   cmake .. -G "Visual Studio 17 2022" -A x64
+
+   **编译静态库 (.lib)**:
+   cmake .. -G "Visual Studio 17 2022" -A x64 -DBUILD_SHARED_LIBS=OFF
+
+4. **编译项目**:
+
+   **通过 CMake 命令行**:
+   cmake --build . --config Release
+
+   **通过 Visual Studio**:
+   用 Visual Studio 打开在 `build` 目录下生成的 `proc_utils.sln` 文件，选择 `Release` 配置，然后生成解决方案。
+
+编译成功后，目标文件将位于 `build\Release` 目录下。
+- **动态库编译产物**: `proc_utils.dll`, `proc_utils.lib` (导入库)
+- **静态库编译产物**: `proc_utils.lib` (静态库)
+
+
+--------------------------------------------------------------------------------
+4. 如何使用
+--------------------------------------------------------------------------------
+
+### 4.1. 在 C/C++ 中使用
+
+你需要 `proc_utils.h` 头文件以及编译生成的 `.lib` 和 `.dll` 文件。
+
+1.  在你的源代码中包含 `proc_utils.h`。
+2.  将 `proc_utils.lib` 添加到项目的链接器输入中。
+3.  确保 `proc_utils.dll` (如果使用动态链接) 在程序运行时可以被找到 (例如，与可执行文件放在同一目录，或位于系统 PATH 中)。
+
+**示例代码 (`main.cpp`):**
+```cpp
+#include <iostream>
+#include <windows.h>      // For SW_SHOW
+#include "proc_utils.hh"  // 引入头文件
+
+// 链接到 proc_utils.lib
+#pragma comment(lib, "proc_utils.lib")
+
+int main() {
+    const wchar_t* process_name = L"notepad.exe";
+
+    std::wcout << L"正在检查 " << process_name << L" 是否存在..." << std::endl;
+    unsigned int pid = ProcUtils_ProcessExists(process_name);
+
+    if (pid > 0) {
+        std::wcout << L"进程已存在，PID: " << pid << L"。正在关闭..." << std::endl;
+        ProcUtils_ProcessClose(process_name, 0);
+        ProcUtils_ProcessWaitClose(process_name, 5000); // 等待关闭
+    }
+
+    std::wcout << L"正在启动 " << process_name << L"..." << std::endl;
+    pid = ProcUtils_Exec(process_name, nullptr, SW_SHOW, false, nullptr);
+
+    if (pid > 0) {
+        std::wcout << L"成功启动，PID: " << pid << std::endl;
+
+        wchar_t path;
+        if (ProcUtils_ProcessGetPath(pid, path, 260)) {
+            std::wcout << L"进程路径: " << path << std::endl;
+        }
+
+        std::wcout << L"等待5秒后关闭进程..." << std::endl;
+        Sleep(5000);
+
+        if (ProcUtils_ProcessClose(process_name, 0)) {
+            std::wcout << L"关闭成功。" << std::endl;
+        } else {
+            std::wcerr << L"错误：关闭失败！" << std::endl;
+        }
+    } else {
+        std::wcerr << L"错误：启动 " << process_name << L" 失败！" << std::endl;
+    }
+
+    return 0;
+}

@@ -17,7 +17,7 @@ local log_critical = native.log_critical
 @param ...: 任意数量的参数，将被转换成字符串并拼接。
 ]]
 function M.trace(...)
-    log_trace(tostring(table.concat({...}, " ")))
+    log_trace(tostring(table.concat({ ... }, " ")))
 end
 
 --[[
@@ -25,7 +25,7 @@ end
 @param ...: 任意数量的参数。
 ]]
 function M.debug(...)
-    log_debug(tostring(table.concat({...}, " ")))
+    log_debug(tostring(table.concat({ ... }, " ")))
 end
 
 --[[
@@ -33,7 +33,7 @@ end
 @param ...: 任意数量的参数。
 ]]
 function M.info(...)
-    log_info(tostring(table.concat({...}, " ")))
+    log_info(tostring(table.concat({ ... }, " ")))
 end
 
 --[[
@@ -41,7 +41,7 @@ end
 @param ...: 任意数量的参数。
 ]]
 function M.warn(...)
-    log_warn(tostring(table.concat({...}, " ")))
+    log_warn(tostring(table.concat({ ... }, " ")))
 end
 
 --[[
@@ -49,7 +49,7 @@ end
 @param ...: 任意数量的参数。
 ]]
 function M.error(...)
-    log_error(tostring(table.concat({...}, " ")))
+    log_error(tostring(table.concat({ ... }, " ")))
 end
 
 --[[
@@ -57,7 +57,7 @@ end
 @param ...: 任意数量的参数。
 ]]
 function M.critical(...)
-    log_critical(tostring(table.concat({...}, " ")))
+    log_critical(tostring(table.concat({ ... }, " ")))
 end
 
 return M

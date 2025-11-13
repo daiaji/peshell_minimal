@@ -29,7 +29,7 @@ local function mkdirs(path)
     local parent_path = path:match("(.+)[\\/][^\\/]+")
 
     -- 如果有父目录，并且父目录不是根目录（如 C:\），则递归创建父目录
-    if parent_path and parent_path ~= "" and parent_path:match(":") then
+    if parent_path and parent_path ~= "" and not parent_path:match("^[A-Za-z]:\\$") then
         local success, err = mkdirs(parent_path)
         if not success then
             return false, err
@@ -81,5 +81,13 @@ function M.initialize()
     -- 来注册核心的 Shell COM 组件，这里予以省略。
     log.info("PE: User environment folders initialized.")
 end
+
+-- 声明要导出的子命令
+M.__commands = {
+    init = function()
+        M.initialize()
+    end
+}
+
 
 return M
