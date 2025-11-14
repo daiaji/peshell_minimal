@@ -58,7 +58,6 @@ function M.copy(source, destination)
     return native.fs_copy(source, destination)
 end
 
-
 --- 移动或重命名文件/目录
 function M.move(source, destination)
     log.debug("Moving '", source, "' to '", destination, "'")

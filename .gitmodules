@@ -10,3 +10,6 @@
 [submodule "vendor/spdlog"]
 	path = vendor/spdlog
 	url = https://github.com/gabime/spdlog.git
+[submodule "vendor/luaunit"]
+	path = vendor/luaunit
+	url = https://github.com/bluebird75/luaunit.git

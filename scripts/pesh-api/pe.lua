@@ -89,5 +89,9 @@ M.__commands = {
     end
 }
 
+-- 新增：导出内部函数以供测试
+M._internal = {
+    mkdirs = mkdirs
+}
 
 return M

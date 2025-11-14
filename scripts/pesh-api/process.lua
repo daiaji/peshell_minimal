@@ -150,7 +150,7 @@ M.__commands = {
         for _, target in ipairs({ ... }) do
             local p = M.find(target)
             if p then
-                 if not p:kill_tree() then log.error("killtree: Failed to terminate process tree for '", target, "'.") end
+                if not p:kill_tree() then log.error("killtree: Failed to terminate process tree for '", target, "'.") end
             else
                 log.warn("killtree: Process '", target, "' not found.")
             end

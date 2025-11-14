@@ -44,13 +44,13 @@ function M.length(source)
     local i = 1
     while i <= #source do
         local byte = string.byte(source, i)
-        if byte < 128 then -- 0xxxxxxx (ASCII)
+        if byte < 128 then     -- 0xxxxxxx (ASCII)
             i = i + 1
         elseif byte < 224 then -- 110xxxxx 10xxxxxx (2-byte)
             i = i + 2
         elseif byte < 240 then -- 1110xxxx 10xxxxxx 10xxxxxx (3-byte)
             i = i + 3
-        else -- 11110xxx 10xxxxxx 10xxxxxx 10xxxxxx (4-byte)
+        else                   -- 11110xxx 10xxxxxx 10xxxxxx 10xxxxxx (4-byte)
             i = i + 4
         end
         len = len + 1
@@ -62,6 +62,7 @@ end
 function M.byte_length(source)
     return string.len(source)
 end
+
 -- ############################
 
 --- (CODE) 编码转换 (占位符)

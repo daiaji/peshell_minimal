@@ -50,19 +50,14 @@ add_custom_command(
     WORKING_DIRECTORY ${LUAJIT_SOURCE_DIR}
     COMMAND cmd.exe /c "msvcbuild.bat" static
 
-    # 2. [调试] 打印编译后的目录内容
-    COMMAND ${CMAKE_COMMAND} -E echo "--- Listing contents of ${LUAJIT_SOURCE_DIR} after build ---"
-    COMMAND cmd.exe /c dir
-    COMMAND ${CMAKE_COMMAND} -E echo "--------------------------------------------------------"
-
-    # 3. 创建我们的"安装"目录结构
+    # 2. 创建我们的"安装"目录结构
     COMMAND ${CMAKE_COMMAND} -E make_directory ${LUAJIT_INSTALL_DIR}/lib
     COMMAND ${CMAKE_COMMAND} -E make_directory ${LUAJIT_INCLUDE_DIR}
 
-    # 4. 拷贝编译好的库文件
+    # 3. 拷贝编译好的库文件
     COMMAND ${CMAKE_COMMAND} -E copy ${LUAJIT_SOURCE_DIR}/lua51.lib ${LUAJIT_INSTALL_DIR}/lib/
 
-    # 5. 拷贝所有必需的头文件
+    # 4. 拷贝所有必需的头文件
     COMMAND ${CMAKE_COMMAND} -E copy ${LUAJIT_REQUIRED_HEADERS} ${LUAJIT_INCLUDE_DIR}/
 
     # 当 msvcbuild.bat 变化时，重新运行此命令
@@ -139,6 +134,15 @@ add_custom_command(
             "${CMAKE_CURRENT_SOURCE_DIR}/scripts"
             "$<TARGET_FILE_DIR:peshell>/scripts"
     COMMENT "Copying scripts to output directory..."
+)
+
+# 将 luaunit.lua 拷贝到 scripts 目录，以便测试脚本可以 require
+add_custom_command(
+    TARGET peshell POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy
+            "${CMAKE_CURRENT_SOURCE_DIR}/vendor/luaunit/luaunit.lua"
+            "$<TARGET_FILE_DIR:peshell>/scripts/luaunit.lua"
+    COMMENT "Copying luaunit.lua to scripts directory..."
 )
 
 add_custom_command(

@@ -15,15 +15,17 @@ local function guardian_coroutine(shell_path, shell_name)
         local shell_proc = process.exec_async({ command = shell_path })
 
         if shell_proc then
-            log.info("SHELL GUARDIAN: Shell process started with PID: ", shell_proc.pid, ". Waiting for it to terminate...")
-            
+            log.info("SHELL GUARDIAN: Shell process started with PID: ", shell_proc.pid,
+                ". Waiting for it to terminate...")
+
             -- 使用事件驱动方式，异步等待进程结束
             local gracefully_exited = shell_proc:wait_for_exit_async(-1)
-            
+
             if gracefully_exited then
-                 log.warn("SHELL GUARDIAN: Shell process (PID: ", shell_proc.pid, ") has terminated. Restarting...")
+                log.warn("SHELL GUARDIAN: Shell process (PID: ", shell_proc.pid, ") has terminated. Restarting...")
             else
-                 log.error("SHELL GUARDIAN: Wait failed for PID ", shell_proc.pid, ". Assuming terminated and attempting restart...")
+                log.error("SHELL GUARDIAN: Wait failed for PID ", shell_proc.pid,
+                    ". Assuming terminated and attempting restart...")
             end
         else
             log.error("SHELL GUARDIAN: Failed to start shell process! Retrying after a delay...")

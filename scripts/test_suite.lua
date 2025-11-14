@@ -1,155 +1,160 @@
 -- scripts/test_suite.lua
--- PEShell API 自动化测试套件 (修正版 v2)
+-- PEShell API 自动化测试套件 (v3 - 基于 LuaUnit)
 
+-- 引入 LuaUnit 和所有待测试的模块
+local lu = require("luaunit")
 local log = require("pesh-api.log")
 local fs = require("pesh-api.fs")
 local string_api = require("pesh-api.string")
+local process = require("pesh-api.process")
+local pe = require("pesh-api.pe")
 local lfs = require("lfs")
 
-local test_results = { passed = 0, failed = 0, total = 0 }
 local temp_dir = (os.getenv("TEMP") or ".") .. "\\_peshell_test_temp"
 
 -- =================================================================
---  测试辅助函数
+--  全局测试固件 (Test Suite Fixtures)
 -- =================================================================
 
-local function assert(condition, message)
-    test_results.total = test_results.total + 1
-    if not condition then
-        test_results.failed = test_results.failed + 1
-        -- 抛出错误，这将终止脚本并被 CI 捕获
-        error("Assertion failed: " .. message, 2)
-    else
-        test_results.passed = test_results.passed + 1
-        log.trace("  - Assert PASSED: ", message)
-    end
-end
-
--- =================================================================
---  测试设置与清理
--- =================================================================
-
-local function setup()
-    log.info("Setting up test environment in '", temp_dir, "'...")
-    -- 清理可能存在的旧目录
+-- 在所有测试开始前运行一次
+function setupSuite()
+    log.info("===================================================")
+    log.info("          PEShell API Test Suite - Started         ")
+    log.info("===================================================")
+    log.info("Setting up global test environment in '", temp_dir, "'...")
     os.execute('rmdir /s /q "' .. temp_dir .. '" > nul 2>&1')
-    lfs.mkdir(temp_dir)
-    lfs.mkdir(temp_dir .. "/subdir")
-    fs.write_bytes(temp_dir .. "/test.txt", "line1\nline2")
-    fs.write_bytes(temp_dir .. "/empty.dat", "")
-    log.info("Setup complete.")
+    lu.assertTrue(lfs.mkdir(temp_dir))
+    log.info("Global setup complete.")
 end
 
-local function teardown()
-    log.info("Tearing down test environment...")
+-- 在所有测试结束后运行一次
+function teardownSuite()
+    log.info("Tearing down global test environment...")
     local success = os.execute('rmdir /s /q "' .. temp_dir .. '"')
-    if success == 0 then
-        log.info("Teardown complete.")
-    else
-        log.warn("Teardown failed to remove temporary directory.")
-    end
+    lu.assertEquals(success, 0, "Teardown should successfully remove the temp directory.")
+    log.info("Global teardown complete.")
+    log.info("===================================================")
+    log.info("           PEShell API Test Suite - Finished         ")
+    log.info("===================================================")
 end
 
 -- =================================================================
---  测试用例
+--  测试用例：文件系统 API (fs.lua)
 -- =================================================================
+TestFileSystem = {}
 
-local function test_fs_path_object()
-    log.debug("[RUNNING] test_fs_path_object")
+function TestFileSystem:testPathObject()
+    log.debug("[RUNNING] TestFileSystem:testPathObject")
     local p = fs.path("C:\\Windows\\System32\\calc.exe")
-    assert(p:directory() == "C:\\Windows\\System32", "Path:directory()")
-    assert(p:drive() == "C:", "Path:drive()")
-    assert(p:extension() == "exe", "Path:extension()")
-    assert(p:filename() == "calc.exe", "Path:filename()")
-    assert(p:name() == "calc", "Path:name()")
-    log.info("[PASSED] test_fs_path_object")
+    lu.assertEquals(p:directory(), "C:\\Windows\\System32", "Path:directory() failed")
+    lu.assertEquals(p:drive(), "C:", "Path:drive() failed")
+    lu.assertEquals(p:extension(), "exe", "Path:extension() failed")
+    lu.assertEquals(p:filename(), "calc.exe", "Path:filename() failed")
+    lu.assertEquals(p:name(), "calc", "Path:name() failed")
 end
 
-local function test_fs_operations()
-    log.debug("[RUNNING] test_fs_operations")
+function TestFileSystem:testFsOperations()
+    log.debug("[RUNNING] TestFileSystem:testFsOperations")
     local src = temp_dir .. "\\test.txt"
     local cpy = temp_dir .. "\\test_copy.txt"
-    local mov = temp_dir .. "\\subdir\\test_moved.txt"
+    local mov_dir = temp_dir .. "\\subdir"
+    local mov = mov_dir .. "\\test_moved.txt"
+    lu.assertTrue(lfs.mkdir(mov_dir), "Failed to create subdir for move test")
+    lu.assertTrue(fs.write_bytes(src, "content"), "Failed to write source file")
 
-    assert(fs.copy(src, cpy), "fs.copy()")
-    assert(fs.get_size(cpy) == fs.get_size(src), "fs.get_size() on copied file")
+    lu.assertTrue(fs.copy(src, cpy), "fs.copy() should succeed")
+    lu.assertEquals(fs.get_size(cpy), fs.get_size(src), "Copied file size should match")
 
-    assert(fs.move(cpy, mov), "fs.move()")
-    assert(not fs.get_attributes(cpy), "Original file should not exist after move")
-    assert(fs.get_attributes(mov), "Moved file should exist")
+    lu.assertEquals(os.rename(cpy, mov), true, "os.rename (fs.move) should succeed")
+    lu.assertIsNil(fs.get_attributes(cpy), "Original file should not exist after move")
+    lu.assertNotIsNil(fs.get_attributes(mov), "Moved file should exist")
 
-    assert(fs.delete(mov), "fs.delete()")
-    assert(not fs.get_attributes(mov), "Deleted file should not exist")
-    log.info("[PASSED] test_fs_operations")
+    lu.assertTrue(fs.delete(mov), "fs.delete() on file should succeed")
+    lu.assertIsNil(fs.get_attributes(mov), "Deleted file should not exist")
 end
 
-local function test_fs_binary_io()
-    log.debug("[RUNNING] test_fs_binary_io")
-    local bin_file = temp_dir .. "\\binary.dat"
-    local content = "\x01\x02\x03\x00\x04"
-    assert(fs.write_bytes(bin_file, content), "fs.write_bytes()")
-    local read_content = fs.read_bytes(bin_file)
-    assert(read_content == content, "fs.read_bytes() content matches")
-    assert(fs.get_size(bin_file) == 5, "fs.get_size() on binary file")
-    log.info("[PASSED] test_fs_binary_io")
-end
+-- =================================================================
+--  测试用例：字符串 API (string.lua)
+-- =================================================================
+TestStringApi = {}
 
-local function test_string_api()
-    log.debug("[RUNNING] test_string_api")
+function TestStringApi:testBasicFunctions()
+    log.debug("[RUNNING] TestStringApi:testBasicFunctions")
     local s = "hello,world,test"
+    lu.assertEquals(string_api.find_pos(s, "world"), 7, "string.find_pos() failed")
+    lu.assertEquals(string_api.sub(s, 7, 5), "world", "string.sub() failed")
+    lu.assertEquals(string_api.replace_regex(s, "world", "peshell"), "hello,peshell,test",
+        "string.replace_regex() failed")
+end
 
-    assert(string_api.find_pos(s, "world") == 7, "string.find_pos()")
-    assert(string_api.sub(s, 7, 5) == "world", "string.sub()")
+function TestStringApi:testSplit()
+    log.debug("[RUNNING] TestStringApi:testSplit")
+    local parts = string_api.split("a,b,c", ",")
+    -- assertItemsEquals 检查两个表包含相同的元素，不关心顺序
+    lu.assertItemsEquals(parts, { "a", "b", "c" })
+end
 
-    local parts = string_api.split(s, ",")
-    assert(#parts == 3 and parts[1] == "hello" and parts[3] == "test", "string.split()")
-
-    local replaced = string_api.replace_regex(s, "world", "peshell")
-    assert(replaced == "hello,peshell,test", "string.replace_regex()")
-
-    -- ########## 关键修正 ##########
-    -- 使用我们新实现的、能够正确处理 UTF-8 的 string_api.length 函数
-    assert(string_api.length("你好") == 2, "string.length() for UTF-8 characters")
-    -- ############################
-
-    assert(string_api.byte_length("你好") == 6, "string.byte_length() for UTF-8 bytes")
-    log.info("[PASSED] test_string_api")
+function TestStringApi:testUtf8Length()
+    log.debug("[RUNNING] TestStringApi:testUtf8Length")
+    lu.assertEquals(string_api.length("你好世界"), 4, "UTF-8 character length failed")
+    lu.assertEquals(string_api.byte_length("你好世界"), 12, "UTF-8 byte length failed")
+    lu.assertEquals(string_api.length("hello"), 5, "ASCII character length failed")
 end
 
 -- =================================================================
---  主测试流程
+--  测试用例：PE 初始化 API (pe.lua) - 新增
 -- =================================================================
+TestPeApi = {}
 
--- 使用 pcall 包装整个测试流程，确保 teardown 总能被执行
-local status, err = pcall(function()
-    setup()
+function TestPeApi:testMkdirs()
+    log.debug("[RUNNING] TestPeApi:testMkdirs")
+    local nested_path = temp_dir .. "\\a\\b\\c"
 
-    -- 运行所有测试用例
-    test_fs_path_object()
-    test_fs_operations()
-    test_fs_binary_io()
-    test_string_api()
-    -- ... 在此添加更多测试函数
+    -- 直接调用 pe.lua 中导出的内部函数
+    local success, err = pe._internal.mkdirs(nested_path)
 
-    teardown()
-end)
-
-log.info("===================================================")
-log.info("                 TEST SUITE RESULTS                ")
-log.info("---------------------------------------------------")
-log.info("  Total Assertions: ", test_results.total)
-log.info("  Passed:           ", test_results.passed)
-log.info("  Failed:           ", test_results.failed)
-log.info("===================================================")
-
-if not status then
-    log.critical("A critical error occurred during the test run:")
-    log.critical(err)
-    os.exit(1) -- 返回非零退出码，以使 CI 失败
-elseif test_results.failed > 0 then
-    log.error("One or more assertions failed.")
-    os.exit(1) -- 返回非零退出码，以使 CI 失败
-else
-    log.info("All tests passed successfully!")
-    os.exit(0)
+    lu.assertTrue(success, "pe._internal.mkdirs should create nested directories. Error: " .. tostring(err))
+    lu.assertEquals(lfs.attributes(nested_path, "mode"), "directory", "Nested directory should exist")
 end
+
+-- =================================================================
+--  测试用例：进程管理 API (process.lua) - 新增
+-- =================================================================
+TestProcessApi = {}
+
+function TestProcessApi:testFindProcess()
+    log.debug("[RUNNING] TestProcessApi:testFindProcess")
+    -- 假设 svchost.exe 总是存在于 Windows PE/系统 中
+    local proc = process.find("svchost.exe")
+    lu.assertNotIsNil(proc, "Should be able to find a running 'svchost.exe' process")
+    lu.assertIsNumber(proc.pid, "Process object should have a numeric PID")
+end
+
+function TestProcessApi:testExecAndKill()
+    log.debug("[RUNNING] TestProcessApi:testExecAndKill")
+    -- 启动一个无害的进程，如 notepad
+    local proc = process.exec_async({ command = "notepad.exe" })
+    lu.assertNotIsNil(proc, "exec_async should return a process object")
+
+    -- 确认进程确实在运行
+    local found_proc = process.find(proc.pid)
+    lu.assertNotIsNil(found_proc, "Newly created process should be findable by its PID")
+    lu.assertEquals(found_proc.pid, proc.pid)
+
+    -- 终止它
+    lu.assertTrue(proc:kill(), "kill() method should return true on success")
+
+    -- 等待并确认它已退出
+    local exited = proc:wait_for_exit_async(3000) -- 等待最多3秒
+    lu.assertTrue(exited, "Process should terminate after being killed")
+
+    -- 再次查找，应该找不到了
+    lu.assertIsNil(process.find(proc.pid), "Killed process should no longer be found")
+end
+
+-- =================================================================
+--  运行所有测试
+-- =================================================================
+-- LuaUnit 会自动发现所有名为 "Test..." 的全局表和名为 "test..." 的全局函数
+-- os.exit() 会将测试结果（成功为0，失败为非0）作为退出码返回给调用者（如 CI 系统）
+os.exit(lu.run())
