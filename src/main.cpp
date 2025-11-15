@@ -23,6 +23,7 @@
 
 // 句柄管理的元表名称
 #define PROCESS_HANDLE_METATABLE "PEShell.ProcessHandle"
+#define EVENT_HANDLE_METATABLE "PEShell.EventHandle"
 
 // ------------------------------------------------------------------
 // 日志系统初始化
@@ -116,9 +117,9 @@ namespace LuaBindings
 
             DWORD remaining_time = (DWORD)(duration_ms - elapsed);
             DWORD wait_result    = MsgWaitForMultipleObjects(0, NULL, FALSE, remaining_time, QS_ALLINPUT);
-            if (wait_result == WAIT_OBJECT_0 + 0)
+            if (wait_result == WAIT_OBJECT_0)
             { // Timeout
-                // Continue loop
+              // Continue loop
             }
             else if (wait_result == WAIT_OBJECT_0 + 1)
             { // Message
@@ -171,7 +172,7 @@ namespace LuaBindings
         return 0;
     }
 
-    // 句柄的垃圾回收 (GC) 函数
+    // 进程句柄的垃圾回收 (GC) 函数
     static int process_handle_gc(lua_State* L)
     {
         HANDLE* pHandle = static_cast<HANDLE*>(luaL_checkudata(L, 1, PROCESS_HANDLE_METATABLE));
@@ -184,10 +185,24 @@ namespace LuaBindings
         return 0;
     }
 
+    // 事件句柄的垃圾回收 (GC) 函数
+    static int event_handle_gc(lua_State* L)
+    {
+        HANDLE* pHandle = static_cast<HANDLE*>(luaL_checkudata(L, 1, EVENT_HANDLE_METATABLE));
+        if (pHandle && *pHandle && *pHandle != INVALID_HANDLE_VALUE)
+        {
+            spdlog::trace("GC: Closing event handle {:p}", *pHandle);
+            ::CloseHandle(*pHandle);
+            *pHandle = INVALID_HANDLE_VALUE;
+        }
+        return 0;
+    }
+
     // 允许 Lua 显式关闭句柄
     static int pesh_close_handle(lua_State* L)
     {
-        HANDLE* pHandle = static_cast<HANDLE*>(luaL_checkudata(L, 1, PROCESS_HANDLE_METATABLE));
+        // This function is generic and can close either type of handle
+        HANDLE* pHandle = static_cast<HANDLE*>(lua_touserdata(L, 1));
         if (pHandle && *pHandle && *pHandle != INVALID_HANDLE_VALUE)
         {
             ::CloseHandle(*pHandle);
@@ -227,17 +242,116 @@ namespace LuaBindings
         return 1;
     }
 
-    // 基于句柄的、带消息循环的等待函数
-    static int pesh_wait_for_handle(lua_State* L)
+    // [新增] 使用 ProcUtils_OpenProcessByName 打开进程
+    static int pesh_open_process_by_name(lua_State* L)
     {
-        HANDLE* pHandle    = static_cast<HANDLE*>(luaL_checkudata(L, 1, PROCESS_HANDLE_METATABLE));
-        int     timeout_ms = (int)luaL_optinteger(L, 2, -1);
-        HANDLE  handle     = *pHandle;
+        auto   process_name_w = Utf8ToWide(L, 1);
+        DWORD  desired_access = PROCESS_QUERY_INFORMATION | SYNCHRONIZE;
+        HANDLE handle         = ProcUtils_OpenProcessByName(process_name_w.data(), desired_access);
 
-        if (!handle || handle == INVALID_HANDLE_VALUE)
+        if (handle == NULL)
+        {
+            lua_pushnil(L);
+            return 1;
+        }
+
+        DWORD pid = GetProcessId(handle);
+        if (pid == 0)
+        {
+            CloseHandle(handle);
+            lua_pushnil(L);
+            return 1;
+        }
+
+        lua_newtable(L);
+        lua_pushinteger(L, pid);
+        lua_setfield(L, -2, "pid");
+
+        HANDLE* pHandle = static_cast<HANDLE*>(lua_newuserdata(L, sizeof(HANDLE)));
+        *pHandle        = handle;
+        luaL_getmetatable(L, PROCESS_HANDLE_METATABLE);
+        lua_setmetatable(L, -2);
+
+        lua_setfield(L, -2, "handle");
+        return 1;
+    }
+
+    // 创建一个命名事件
+    static int pesh_create_event(lua_State* L)
+    {
+        auto   event_name_w = Utf8ToWide(L, 1);
+        HANDLE hEvent = CreateEventW(NULL, TRUE, FALSE, event_name_w.data()); // Manual-reset, initially non-signaled
+        if (hEvent == NULL)
+        {
+            spdlog::error("Failed to create named event. Error: {}", GetLastError());
+            lua_pushnil(L);
+            return 1;
+        }
+        HANDLE* pHandle = static_cast<HANDLE*>(lua_newuserdata(L, sizeof(HANDLE)));
+        *pHandle        = hEvent;
+        luaL_getmetatable(L, EVENT_HANDLE_METATABLE);
+        lua_setmetatable(L, -2);
+        return 1;
+    }
+
+    // 打开一个已存在的命名事件
+    static int pesh_open_event(lua_State* L)
+    {
+        auto   event_name_w = Utf8ToWide(L, 1);
+        HANDLE hEvent       = OpenEventW(EVENT_MODIFY_STATE, FALSE, event_name_w.data());
+        if (hEvent == NULL)
+        {
+            lua_pushnil(L);
+            return 1;
+        }
+        HANDLE* pHandle = static_cast<HANDLE*>(lua_newuserdata(L, sizeof(HANDLE)));
+        *pHandle        = hEvent;
+        luaL_getmetatable(L, EVENT_HANDLE_METATABLE);
+        lua_setmetatable(L, -2);
+        return 1;
+    }
+
+    // 触发一个事件
+    static int pesh_set_event(lua_State* L)
+    {
+        HANDLE* pHandle = static_cast<HANDLE*>(luaL_checkudata(L, 1, EVENT_HANDLE_METATABLE));
+        if (pHandle && *pHandle)
+        {
+            lua_pushboolean(L, SetEvent(*pHandle));
+        }
+        else
         {
             lua_pushboolean(L, false);
-            return 1;
+        }
+        return 1;
+    }
+
+    // [核心] 等待多个句柄，同时处理消息循环
+    static int pesh_wait_for_multiple_objects(lua_State* L)
+    {
+        luaL_checktype(L, 1, LUA_TTABLE);
+        int   timeout_ms = (int)luaL_optinteger(L, 2, -1);
+        DWORD timeout_dw = (timeout_ms < 0) ? INFINITE : (DWORD)timeout_ms;
+
+        std::vector<HANDLE> handles;
+        // [核心修正] 使用 lua_objlen 替代 lua_rawlen，以兼容 Lua 5.1 / LuaJIT
+        int n = (int)lua_objlen(L, 1);
+        for (int i = 1; i <= n; i++)
+        {
+            lua_rawgeti(L, 1, i);
+            void* udata = lua_touserdata(L, -1);
+            if (udata)
+            {
+                handles.push_back(*static_cast<HANDLE*>(udata));
+            }
+            lua_pop(L, 1);
+        }
+
+        if (handles.empty())
+        {
+            lua_pushnil(L);
+            lua_pushstring(L, "No valid handles provided.");
+            return 2;
         }
 
         ULONGLONG start_time = GetTickCount64();
@@ -245,43 +359,56 @@ namespace LuaBindings
         while (true)
         {
             ULONGLONG elapsed        = GetTickCount64() - start_time;
-            DWORD     remaining_time = (timeout_ms < 0 || (ULONGLONG)timeout_ms > elapsed)
-                                           ? (timeout_ms < 0 ? INFINITE : (DWORD)(timeout_ms - elapsed))
+            DWORD     remaining_time = (timeout_dw == INFINITE || elapsed < timeout_dw)
+                                           ? (timeout_dw == INFINITE ? INFINITE : timeout_dw - (DWORD)elapsed)
                                            : 0;
 
-            DWORD wait_result = MsgWaitForMultipleObjects(1, &handle, FALSE, remaining_time, QS_ALLINPUT);
+            DWORD wait_result =
+                MsgWaitForMultipleObjects((DWORD)handles.size(), handles.data(), FALSE, remaining_time, QS_ALLINPUT);
 
-            if (wait_result == WAIT_OBJECT_0)
+            if (wait_result >= WAIT_OBJECT_0 && wait_result < (WAIT_OBJECT_0 + handles.size()))
             {
-                lua_pushboolean(L, true); // 进程已结束
+                lua_pushinteger(L, wait_result - WAIT_OBJECT_0 + 1); // 返回 1-based index
                 return 1;
             }
-            if (wait_result == WAIT_OBJECT_0 + 1)
+
+            if (wait_result == (WAIT_OBJECT_0 + handles.size()))
             {
                 MSG msg;
                 while (PeekMessage(&msg, NULL, 0, 0, PM_REMOVE))
                 {
                     if (msg.message == WM_QUIT)
                     {
-                        lua_pushboolean(L, false);
-                        return 1;
+                        lua_pushnil(L);
+                        lua_pushstring(L, "WM_QUIT received.");
+                        return 2;
                     }
                     TranslateMessage(&msg);
                     DispatchMessage(&msg);
                 }
             }
             else
-            {
-                lua_pushboolean(L, false); // 超时或错误
-                return 1;
+            { // 超时或错误
+                lua_pushnil(L);
+                lua_pushstring(L, "Wait timed out or failed.");
+                return 2;
             }
 
-            if (remaining_time == 0 && timeout_ms >= 0)
+            if (remaining_time == 0 && timeout_dw != INFINITE)
             {
-                lua_pushboolean(L, false);
-                return 1;
+                lua_pushnil(L);
+                lua_pushstring(L, "Wait timed out.");
+                return 2;
             }
         }
+    }
+
+    // 优雅地退出主消息循环
+    static int pesh_post_quit_message(lua_State* L)
+    {
+        int exit_code = (int)luaL_optinteger(L, 1, 0);
+        PostQuitMessage(exit_code);
+        return 0;
     }
 
     // 其他 proc_utils 函数绑定
@@ -352,9 +479,15 @@ lua_State* InitializeLuaState(const std::string& exe_dir)
     }
     luaL_openlibs(L);
 
-    // 注册句柄元表及其 __gc 方法
+    // 注册进程句柄元表及其 __gc 方法
     luaL_newmetatable(L, PROCESS_HANDLE_METATABLE);
     lua_pushcfunction(L, LuaBindings::process_handle_gc);
+    lua_setfield(L, -2, "__gc");
+    lua_pop(L, 1);
+
+    // 注册事件句柄元表及其 __gc 方法
+    luaL_newmetatable(L, EVENT_HANDLE_METATABLE);
+    lua_pushcfunction(L, LuaBindings::event_handle_gc);
     lua_setfield(L, -2, "__gc");
     lua_pop(L, 1);
 
@@ -366,27 +499,33 @@ lua_State* InitializeLuaState(const std::string& exe_dir)
     lua_pop(L, 2);
 
     // 将所有 C++ 绑定注册到全局表 pesh_native
-    static const struct luaL_Reg pesh_native_lib[] = {{"sleep", LuaBindings::pesh_sleep},
-                                                      {"create_process", LuaBindings::pesh_create_process},
-                                                      {"wait_for_handle", LuaBindings::pesh_wait_for_handle},
-                                                      {"close_handle", LuaBindings::pesh_close_handle},
-                                                      {"process_exists", LuaBindings::pesh_process_exists},
-                                                      {"process_close", LuaBindings::pesh_process_close},
-                                                      {"process_close_tree", LuaBindings::pesh_process_close_tree},
+    static const struct luaL_Reg pesh_native_lib[] = {
+        {"sleep", LuaBindings::pesh_sleep},
+        {"create_process", LuaBindings::pesh_create_process},
+        {"open_process_by_name", LuaBindings::pesh_open_process_by_name},
+        {"close_handle", LuaBindings::pesh_close_handle},
+        {"process_exists", LuaBindings::pesh_process_exists},
+        {"process_close", LuaBindings::pesh_process_close},
+        {"process_close_tree", LuaBindings::pesh_process_close_tree},
+        {"fs_copy", LuaBindings::pesh_fs_copy},
+        {"fs_mkdirs", LuaBindings::pesh_fs_mkdirs},
 
-                                                      // 添加缺失的文件系统绑定
-                                                      {"fs_copy", LuaBindings::pesh_fs_copy},
-                                                      {"fs_mkdirs", LuaBindings::pesh_fs_mkdirs},
+        // 新增事件相关绑定
+        {"create_event", LuaBindings::pesh_create_event},
+        {"open_event", LuaBindings::pesh_open_event},
+        {"set_event", LuaBindings::pesh_set_event},
+        {"post_quit_message", LuaBindings::pesh_post_quit_message},
+        {"wait_for_multiple_objects", LuaBindings::pesh_wait_for_multiple_objects},
 
-                                                      // 日志函数绑定
-                                                      {"log_trace", LuaBindings::pesh_log_trace},
-                                                      {"log_debug", LuaBindings::pesh_log_debug},
-                                                      {"log_info", LuaBindings::pesh_log_info},
-                                                      {"log_warn", LuaBindings::pesh_log_warn},
-                                                      {"log_error", LuaBindings::pesh_log_error},
-                                                      {"log_critical", LuaBindings::pesh_log_critical},
+        // 日志函数绑定
+        {"log_trace", LuaBindings::pesh_log_trace},
+        {"log_debug", LuaBindings::pesh_log_debug},
+        {"log_info", LuaBindings::pesh_log_info},
+        {"log_warn", LuaBindings::pesh_log_warn},
+        {"log_error", LuaBindings::pesh_log_error},
+        {"log_critical", LuaBindings::pesh_log_critical},
 
-                                                      {NULL, NULL}};
+        {NULL, NULL}};
     lua_newtable(L);
     luaL_setfuncs(L, pesh_native_lib, 0);
     lua_setglobal(L, "pesh_native");
@@ -417,7 +556,7 @@ int main(int argc, char* argv[])
     std::string exe_dir    = (std::string::npos != last_slash) ? exe_path.substr(0, last_slash) : ".";
 
     InitializeLogger(exe_dir);
-    spdlog::info("PEShell v3.1 [Final Fix] starting...");
+    spdlog::info("PEShell v3.1 [Guardian IPC Fix] starting...");
     spdlog::info("Executable directory: {}", exe_dir);
 
     lua_State* L = InitializeLuaState(exe_dir);
@@ -467,7 +606,6 @@ int main(int argc, char* argv[])
         }
         else
         {
-            // 获取 Lua 命令的返回值作为退出码
             if (lua_isnumber(L, -1))
             {
                 return_code = (int)lua_tointeger(L, -1);

@@ -1,5 +1,5 @@
 -- scripts/pesh-api/process.lua
--- 封装 proc_utils 库，提供面向对象的进程管理 API (重构版)
+-- 封装 proc_utils 库，提供面向对象的进程管理 API (重构并修正)
 
 local M = {}
 local native = pesh_native
@@ -27,13 +27,23 @@ function process_metatable.__index:wait_for_exit_async(timeout_ms)
     log.debug("Waiting on handle for process PID ", self.pid, " to exit with timeout ", timeout_ms, "ms.")
     
     if not self.handle then
-        log.error("Cannot wait for process ", self.pid, ": handle is nil. Falling back to polling (less efficient).")
-        return native.process_wait_close(tostring(self.pid), timeout_ms)
+        log.error("Cannot wait for process ", self.pid, ": handle is nil.")
+        return false
     end
     
-    -- 调用新的、基于句柄的、带消息循环的等待函数
-    return native.wait_for_handle(self.handle, timeout_ms)
+    -- [修正 1] 使用正确的函数名: wait_for_multiple_objects
+    -- [修正 2] 将单个句柄 self.handle 包装在一个 table { } 中传递
+    local signaled_index, err = native.wait_for_multiple_objects({ self.handle }, timeout_ms)
+
+    -- 函数返回的是被触发的句柄索引，如果是1，则表示我们的进程句柄被触发了（即进程已退出）
+    if signaled_index == 1 then
+        return true -- 成功等到进程退出
+    else
+        log.warn("Wait for process ", self.pid, " failed or timed out. Reason: ", tostring(err))
+        return false -- 等待超时或失败
+    end
 end
+
 
 --- [新增] 显式关闭进程句柄 (良好实践)
 function process_metatable.__index:close_handle()
@@ -45,6 +55,27 @@ function process_metatable.__index:close_handle()
 end
 
 -- ########## Module-level Functions ##########
+
+---
+-- [新增] 根据进程名打开一个已存在的进程，并返回一个包含句柄的进程对象
+-- @param process_name string: 目标进程的可执行文件名 (e.g., "explorer.exe")
+-- @return table|nil: 成功则返回进程对象，否则返回 nil
+function M.open_by_name(process_name)
+    log.trace("Attempting to open existing process by name: '", process_name, "'")
+    -- 直接调用新的 C++ 绑定
+    local result = native.open_process_by_name(process_name)
+
+    if result and result.pid > 0 then
+        log.trace("Successfully opened process '", process_name, "' (PID: ", result.pid, "), Handle: ", tostring(result.handle))
+        -- 创建并返回一个标准的进程对象
+        local process_obj = { pid = result.pid, handle = result.handle }
+        setmetatable(process_obj, process_metatable)
+        return process_obj
+    end
+
+    log.trace("Process '", process_name, "' not found or could not be opened.")
+    return nil
+end
 
 --- 根据进程名或PID查找一个正在运行的进程 (返回的进程对象不含句柄)
 function M.find(name_or_pid)
@@ -84,7 +115,6 @@ function M.exec_async(params)
         local process_obj = { pid = result.pid, handle = result.handle }
         setmetatable(process_obj, process_metatable)
         
-        -- 不再需要任何 sleep！函数返回时，进程已完全创建并可被操作。
         return process_obj
     end
 
