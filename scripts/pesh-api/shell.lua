@@ -1,6 +1,5 @@
--- pesh-api/shell.lua
--- 封装外壳 (Shell) 的加载与守护逻辑
--- 版本 4.1 - 优化日志和健壮性
+-- scripts/pesh-api/shell.lua
+-- 封装外壳 (Shell) 的加载与守护逻辑 (重构版)
 
 local M = {}
 local process = require("pesh-api.process")
@@ -11,28 +10,27 @@ local log = require("pesh-api.log")
 local function guardian_coroutine(shell_path, shell_name)
     log.info("SHELL GUARDIAN: Coroutine started for '", shell_name, "'.")
     while true do
-        -- 启动外壳进程
+        -- 启动外壳进程，现在我们能获取到它的句柄
         local shell_proc = process.exec_async({ command = shell_path })
 
         if shell_proc then
             log.info("SHELL GUARDIAN: Shell process started with PID: ", shell_proc.pid,
-                ". Waiting for it to terminate...")
+                ". Waiting for it to terminate via its handle...")
 
-            -- 使用事件驱动方式，异步等待进程结束
-            local gracefully_exited = shell_proc:wait_for_exit_async(-1)
+            -- [核心改进]
+            -- 这是一个基于句柄的、精确的、事件驱动的等待。
+            -- 它会一直阻塞（同时处理UI消息），直到进程确实退出。
+            shell_proc:wait_for_exit_async(-1) -- -1 表示无限等待
 
-            if gracefully_exited then
-                log.warn("SHELL GUARDIAN: Shell process (PID: ", shell_proc.pid, ") has terminated. Restarting...")
-            else
-                log.error("SHELL GUARDIAN: Wait failed for PID ", shell_proc.pid,
-                    ". Assuming terminated and attempting restart...")
-            end
+            log.warn("SHELL GUARDIAN: Shell process (PID: ", shell_proc.pid, ") has terminated. Restarting...")
+            
+            -- 进程结束后，句柄已失效。虽然GC会自动处理，但显式关闭是好习惯。
+            shell_proc:close_handle()
         else
-            log.error("SHELL GUARDIAN: Failed to start shell process! Retrying after a delay...")
-            -- 如果启动失败，等待更长时间再重试
+            log.error("SHELL GUARDIAN: Failed to start shell process! Retrying after 5 seconds...")
             async.sleep_async(5000)
         end
-        -- 重启前的短暂延时，给系统一点喘息时间
+        -- 重启前的短暂延时，防止因某种错误导致的高CPU占用循环
         async.sleep_async(1000)
     end
 end
@@ -46,11 +44,13 @@ function M.lock_shell(shell_path)
         return
     end
 
+    -- 从路径中提取文件名
     local _, _, shell_name = shell_path:find("([^\\\\]+)$")
     shell_name = shell_name or shell_path
 
     log.info("SHELL: Dispatching background guardian for '", shell_name, "'...")
 
+    -- 创建并启动守护协程
     local co = coroutine.create(guardian_coroutine)
     local status, err = coroutine.resume(co, shell_path, shell_name)
     if not status then

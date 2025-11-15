@@ -8,31 +8,32 @@ project(peshell CXX C)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-# ----------------------------------------------------
-# 设置 MSVC 运行时库为静态 (/MTd, /MT)
-# ----------------------------------------------------
+# -------------------------------------------------------------------------
+# [关键修复 1] 全局设置 MSVC 静态运行时库 (/MT)
+# -------------------------------------------------------------------------
+# 这会确保本项目以及所有子项目都使用静态链接的C++运行时库，
+# 从而消除对 vcruntime140.dll 等外部DLL的依赖。
 if(MSVC)
-  # 这个设置会自动为 Release 配置选择 /MT，为 Debug 配置选择 /MTd
-  set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+  set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>" CACHE STRING "MSVC Runtime Library" FORCE)
 endif()
 
-# ----------------------------------------------------
+
+# -------------------------------------------------------------------------
 # 添加 vendor 子目录
-# ----------------------------------------------------
+# -------------------------------------------------------------------------
 set(VENDOR_DIR ${CMAKE_CURRENT_SOURCE_DIR}/vendor)
 
 # --- 0. spdlog (作为 header-only 库添加) ---
-# spdlog 默认是 header-only，我们直接将其 include 目录添加到全局
 add_subdirectory(${VENDOR_DIR}/spdlog)
 
 
-# --- 1. LuaJIT (外部构建，并精确拷贝所需产物) ---
+# --- 1. LuaJIT (外部构建) ---
+# ... (这部分逻辑不变，保持原样) ...
 set(LUAJIT_SOURCE_DIR ${VENDOR_DIR}/luajit2/src)
 set(LUAJIT_INSTALL_DIR ${CMAKE_BINARY_DIR}/luajit-install)
 set(LUAJIT_INCLUDE_DIR ${LUAJIT_INSTALL_DIR}/include)
 set(LUAJIT_LIBRARY ${LUAJIT_INSTALL_DIR}/lib/lua51.lib)
 
-# 根据你的批处理脚本，明确列出需要拷贝的头文件
 set(LUAJIT_REQUIRED_HEADERS
     "${LUAJIT_SOURCE_DIR}/lua.h"
     "${LUAJIT_SOURCE_DIR}/lualib.h"
@@ -42,36 +43,19 @@ set(LUAJIT_REQUIRED_HEADERS
     "${LUAJIT_SOURCE_DIR}/luajit.h"
 )
 
-# 添加自定义命令来构建 LuaJIT 并整理其产物
 add_custom_command(
     OUTPUT ${LUAJIT_LIBRARY}
-
-    # 1. 设置工作目录并执行编译
     WORKING_DIRECTORY ${LUAJIT_SOURCE_DIR}
     COMMAND cmd.exe /c "msvcbuild.bat" static
-
-    # 2. 创建我们的"安装"目录结构
     COMMAND ${CMAKE_COMMAND} -E make_directory ${LUAJIT_INSTALL_DIR}/lib
     COMMAND ${CMAKE_COMMAND} -E make_directory ${LUAJIT_INCLUDE_DIR}
-
-    # 3. 拷贝编译好的库文件
     COMMAND ${CMAKE_COMMAND} -E copy ${LUAJIT_SOURCE_DIR}/lua51.lib ${LUAJIT_INSTALL_DIR}/lib/
-
-    # 4. 拷贝所有必需的头文件
     COMMAND ${CMAKE_COMMAND} -E copy ${LUAJIT_REQUIRED_HEADERS} ${LUAJIT_INCLUDE_DIR}/
-
-    # 当 msvcbuild.bat 变化时，重新运行此命令
     DEPENDS ${VENDOR_DIR}/luajit2/src/msvcbuild.bat
-
     COMMENT "Building and packaging required LuaJIT artifacts from 'luajit2'..."
-    # 使用 VERBATIM 确保命令字符串被正确传递
     VERBATIM
 )
-
-# 创建一个目标来触发 LuaJIT 的构建
 add_custom_target(luajit_build ALL DEPENDS ${LUAJIT_LIBRARY})
-
-# 创建一个 INTERFACE 库来代表 LuaJIT，它会“携带”头文件和库文件的信息
 add_library(luajit INTERFACE)
 target_include_directories(luajit INTERFACE ${LUAJIT_INCLUDE_DIR})
 target_link_libraries(luajit INTERFACE ${LUAJIT_LIBRARY})
@@ -79,54 +63,43 @@ add_dependencies(luajit luajit_build)
 
 
 # --- 2. proc_utils (作为子项目，编译为静态库) ---
+# -------------------------------------------------------------------------
+# [关键修复 2] 在包含子目录之前，设置其构建选项
+# -------------------------------------------------------------------------
+# 这会确保当 CMake 处理 proc_utils 的 CMakeLists.txt 时，
+# BUILD_SHARED_LIBS 选项已经被设为 OFF，从而从一开始就将其配置为静态库。
+set(BUILD_SHARED_LIBS OFF CACHE BOOL "Force static libraries for subprojects" FORCE)
 add_subdirectory(${VENDOR_DIR}/proc_utils)
-set_target_properties(proc_utils PROPERTIES BUILD_SHARED_LIBS OFF)
 
 
 # --- 3. LuaFileSystem (lfs) (作为静态库编译) ---
 add_library(lfs STATIC ${VENDOR_DIR}/lfs/src/lfs.c)
-
-# lfs.c 需要 LuaJIT 的头文件，所以链接 luajit 接口库
 target_link_libraries(lfs PUBLIC luajit)
-
-# lfs 的公共头文件 lfs.h 在 vendor/lfs/src 目录中
-# 任何链接到 lfs 的目标（比如 peshell）都应该能自动找到这个目录
-target_include_directories(lfs PUBLIC
-    "$<BUILD_INTERFACE:${VENDOR_DIR}/lfs/src>"
-)
-
-# 为 lfs.c 单独设置编译定义以避免警告
+target_include_directories(lfs PUBLIC "$<BUILD_INTERFACE:${VENDOR_DIR}/lfs/src>")
 set_source_files_properties(${VENDOR_DIR}/lfs/src/lfs.c PROPERTIES
     COMPILE_DEFINITIONS _CRT_SECURE_NO_WARNINGS
 )
 
+
 # ----------------------------------------------------
 # 创建主可执行文件目标
 # ----------------------------------------------------
-# 关键修改：移除了 WIN32 关键字。
-# 这会使 CMake 在所有模式下都默认生成一个控制台应用程序。
 add_executable(peshell src/main.cpp)
 
-# 关键修改：移除了为 Release 模式设置 /SUBSYSTEM:WINDOWS 的部分。
-# 现在 Release 版本也会是一个控制台程序。
 
 # ----------------------------------------------------
 # 链接所有依赖项到主目标
 # ----------------------------------------------------
 target_link_libraries(peshell PRIVATE
-    # 链接 lfs 会自动带来 luajit 的依赖 (头文件和库)
     lfs
-    # 链接 proc_utils
     proc_utils
-    # 链接 Windows 平台必需的库
     user32.lib
     psapi.lib
-    # 链接 spdlog (虽然是 header-only, 但好习惯是明确链接)
     spdlog::spdlog
 )
 
 # ----------------------------------------------------
-# 构建后事件：拷贝 scripts 和 modules 目录
+# 构建后事件 (保持不变)
 # ----------------------------------------------------
 add_custom_command(
     TARGET peshell POST_BUILD
@@ -135,8 +108,6 @@ add_custom_command(
             "$<TARGET_FILE_DIR:peshell>/scripts"
     COMMENT "Copying scripts to output directory..."
 )
-
-# 将 luaunit.lua 拷贝到 scripts 目录，以便测试脚本可以 require
 add_custom_command(
     TARGET peshell POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy
@@ -144,7 +115,6 @@ add_custom_command(
             "$<TARGET_FILE_DIR:peshell>/scripts/luaunit.lua"
     COMMENT "Copying luaunit.lua to scripts directory..."
 )
-
 add_custom_command(
     TARGET peshell POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E make_directory
