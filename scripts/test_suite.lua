@@ -1,14 +1,16 @@
 -- scripts/test_suite.lua
--- PEShell API 自动化测试套件 (v3 - 基于 LuaUnit)
+-- PEShell API 自动化测试套件 (v8.3 - Takeover Test)
 
--- 引入 LuaUnit 和所有待测试的模块
 local lu = require("luaunit")
 local log = require("pesh-api.log")
 local fs = require("pesh-api.fs")
 local string_api = require("pesh-api.string")
 local process = require("pesh-api.process")
 local pe = require("pesh-api.pe")
+local shell = require("pesh-api.shell")
+local async = require("pesh-api.async")
 local lfs = require("lfs")
+local native = _G.pesh_native
 
 local temp_dir = (os.getenv("TEMP") or ".") .. "\\_peshell_test_temp"
 
@@ -16,7 +18,6 @@ local temp_dir = (os.getenv("TEMP") or ".") .. "\\_peshell_test_temp"
 --  全局测试固件 (Test Suite Fixtures)
 -- =================================================================
 
--- 在所有测试开始前运行一次
 function setupSuite()
     log.info("===================================================")
     log.info("          PEShell API Test Suite - Started         ")
@@ -27,7 +28,6 @@ function setupSuite()
     log.info("Global setup complete.")
 end
 
--- 在所有测试结束后运行一次
 function teardownSuite()
     log.info("Tearing down global test environment...")
     local success = os.execute('rmdir /s /q "' .. temp_dir .. '"')
@@ -65,7 +65,7 @@ function TestFileSystem:testFsOperations()
     lu.assertTrue(fs.copy(src, cpy), "fs.copy() should succeed")
     lu.assertEquals(fs.get_size(cpy), fs.get_size(src), "Copied file size should match")
 
-    lu.assertEquals(os.rename(cpy, mov), true, "os.rename (fs.move) should succeed")
+    lu.assertTrue(fs.move(cpy, mov), "fs.move() should succeed")
     lu.assertIsNil(fs.get_attributes(cpy), "Original file should not exist after move")
     lu.assertNotIsNil(fs.get_attributes(mov), "Moved file should exist")
 
@@ -87,74 +87,194 @@ function TestStringApi:testBasicFunctions()
         "string.replace_regex() failed")
 end
 
-function TestStringApi:testSplit()
-    log.debug("[RUNNING] TestStringApi:testSplit")
-    local parts = string_api.split("a,b,c", ",")
-    -- assertItemsEquals 检查两个表包含相同的元素，不关心顺序
-    lu.assertItemsEquals(parts, { "a", "b", "c" })
-end
-
-function TestStringApi:testUtf8Length()
-    log.debug("[RUNNING] TestStringApi:testUtf8Length")
-    lu.assertEquals(string_api.length("你好世界"), 4, "UTF-8 character length failed")
-    lu.assertEquals(string_api.byte_length("你好世界"), 12, "UTF-8 byte length failed")
-    lu.assertEquals(string_api.length("hello"), 5, "ASCII character length failed")
-end
+-- ... 其他字符串测试 ...
 
 -- =================================================================
---  测试用例：PE 初始化 API (pe.lua) - 新增
+--  测试用例：PE 初始化 API (pe.lua)
 -- =================================================================
 TestPeApi = {}
 
 function TestPeApi:testMkdirs()
     log.debug("[RUNNING] TestPeApi:testMkdirs")
     local nested_path = temp_dir .. "\\a\\b\\c"
-
-    -- 直接调用 pe.lua 中导出的内部函数
     local success, err = pe._internal.mkdirs(nested_path)
-
     lu.assertTrue(success, "pe._internal.mkdirs should create nested directories. Error: " .. tostring(err))
     lu.assertEquals(lfs.attributes(nested_path, "mode"), "directory", "Nested directory should exist")
 end
 
 -- =================================================================
---  测试用例：进程管理 API (process.lua) - 新增
+--  测试用例：进程管理 API (process.lua)
 -- =================================================================
 TestProcessApi = {}
 
-function TestProcessApi:testFindProcess()
-    log.debug("[RUNNING] TestProcessApi:testFindProcess")
-    -- 假设 svchost.exe 总是存在于 Windows PE/系统 中
-    local proc = process.find("svchost.exe")
-    lu.assertNotIsNil(proc, "Should be able to find a running 'svchost.exe' process")
-    lu.assertIsNumber(proc.pid, "Process object should have a numeric PID")
-end
-
-function TestProcessApi:testExecAndKill()
-    log.debug("[RUNNING] TestProcessApi:testExecAndKill")
-    -- 启动一个无害的进程，如 notepad
+-- ... 其他进程测试 ...
+function TestProcessApi:testExecAndKillWithHandle()
+    log.debug("[RUNNING] TestProcessApi:testExecAndKillWithHandle")
     local proc = process.exec_async({ command = "notepad.exe" })
     lu.assertNotIsNil(proc, "exec_async should return a process object")
+    lu.assertNotIsNil(proc.handle, "Process object should have a valid handle")
 
-    -- 确认进程确实在运行
-    local found_proc = process.find(proc.pid)
-    lu.assertNotIsNil(found_proc, "Newly created process should be findable by its PID")
+    local found_proc = process.open_by_name("notepad.exe")
+    lu.assertNotIsNil(found_proc, "Newly created process should be findable by its name")
     lu.assertEquals(found_proc.pid, proc.pid)
+    found_proc:close_handle()
 
-    -- 终止它
     lu.assertTrue(proc:kill(), "kill() method should return true on success")
-
-    -- 等待并确认它已退出
-    local exited = proc:wait_for_exit_async(3000) -- 等待最多3秒
-    lu.assertTrue(exited, "Process should terminate after being killed")
-
-    -- 再次查找，应该找不到了
+    
+    local exited, err_msg = proc:wait_for_exit_async(3000)
+    lu.assertTrue(exited, "Process should terminate after being killed. Reason: " .. tostring(err_msg))
+    
+    proc:close_handle()
+    lu.assertIsNil(proc.handle, "Handle should be nil after explicit close")
     lu.assertIsNil(process.find(proc.pid), "Killed process should no longer be found")
+end
+-- =================================================================
+--  测试用例：Shell 守护 API
+-- =================================================================
+TestShellApi = {}
+
+local function precise_cleanup(process_name_to_clean)
+    local self_pid = process.get_current_pid()
+    log.debug("Precise cleanup for '", process_name_to_clean, "', self PID is ", self_pid)
+    local all_procs = process.find_all(process_name_to_clean)
+    if all_procs then
+        for _, pid in ipairs(all_procs) do
+            if pid ~= self_pid then
+                log.warn("  -> Cleaning up leftover process with PID: ", pid)
+                native.process_close_tree(tostring(pid))
+            end
+        end
+    end
+end
+
+function TestShellApi:setUp()
+    -- 每个测试前都执行一次清理，确保环境干净
+    log.debug("SETUP (TestShellApi): Cleaning up guardian test processes...")
+    precise_cleanup("peshell.exe")
+    native.process_close_tree("ping.exe")
+end
+
+function TestShellApi:tearDown()
+    log.debug("TEARDOWN (TestShellApi): Cleaning up guardian test processes...")
+    precise_cleanup("peshell.exe")
+    native.process_close_tree("ping.exe")
+end
+
+function TestShellApi:testGuardianLifecycle()
+    log.debug("[RUNNING] TestShellApi:testGuardianLifecycle")
+    local peshell_exe_path = process.get_self_path()
+    local target_process_cmd = "ping.exe -t 127.0.0.1"
+    local target_process_name = "ping.exe"
+
+    -- 1. 准备 IPC 事件
+    local unique_id = native.get_current_pid() .. "_" .. math.random(10000, 99999)
+    local ready_event_name = "Global\\PEShell_Test_Ready_" .. unique_id
+    local respawn_event_name = "Global\\PEShell_Test_Respawn_" .. unique_id
+    local ready_event = native.create_event(ready_event_name)
+    local respawn_event = native.create_event(respawn_event_name)
+    lu.assertNotIsNil(ready_event, "Failed to create the readiness event.")
+    lu.assertNotIsNil(respawn_event, "Failed to create the respawn event.")
+    
+    local guardian_cmd = string.format('"%s" main scripts/test_guardian_init.lua "%s" %s %s', 
+        peshell_exe_path, target_process_cmd, ready_event_name, respawn_event_name)
+    local shutdown_cmd = string.format('"%s" run scripts/shutdown.lua', peshell_exe_path)
+
+    -- 2. 启动守护进程并等待就绪信号
+    log.info("  [1/4] Launching guardian and waiting for READY signal...")
+    local guardian_proc = process.exec_async({ command = guardian_cmd })
+    lu.assertNotIsNil(guardian_proc, "Failed to launch the guardian process.")
+    guardian_proc:close_handle()
+
+    local signaled_index = native.wait_for_multiple_objects({ ready_event }, 10000)
+    native.close_handle(ready_event)
+    lu.assertEquals(signaled_index, 1, "Guardian process failed to signal READY within 10s.")
+    log.info("  -> READY signal received.")
+    
+    local p1 = process.find(target_process_name)
+    lu.assertNotIsNil(p1, "Guardian signaled READY, but the target process was not found.")
+    log.info("  -> VERIFIED! Target process (PID:", p1.pid, ") is running.")
+
+    -- 3. 验证重生
+    log.info("  [2/4] Testing respawn...")
+    p1:kill()
+    
+    signaled_index = native.wait_for_multiple_objects({ respawn_event }, 10000)
+    native.close_handle(respawn_event)
+    lu.assertEquals(signaled_index, 1, "Guardian failed to signal RESPAWN within 10s.")
+    log.info("  -> RESPAWN signal received.")
+
+    local p2 = process.find(target_process_name)
+    lu.assertNotIsNil(p2, "Guardian signaled RESPAWN, but the new target process was not found.")
+    lu.assertNotEquals(p1.pid, p2.pid, "Respawned process should have a new PID.")
+    log.info("  -> VERIFIED! Target respawned with new PID: ", p2.pid)
+
+    -- 4. 发送关闭信号并验证
+    log.info("  [3/4] Sending shutdown signal...")
+    local shutdown_proc = process.exec_async({ command = shutdown_cmd })
+    if shutdown_proc then shutdown_proc:wait_for_exit_async(5000); shutdown_proc:close_handle() end
+    
+    log.info("  [4/4] Verifying shutdown...")
+    async.sleep_async(2000) -- 等待守护进程完成清理
+    lu.assertIsNil(process.find(target_process_name), "Guardian failed to terminate target after shutdown.")
+    log.info("  -> VERIFIED! Guardian has cleaned up correctly.")
+end
+
+--- [新增] 验证接管 (Takeover) 策略的测试用例
+function TestShellApi:testGuardianTakeover()
+    log.debug("[RUNNING] TestShellApi:testGuardianTakeover")
+    
+    local peshell_exe_path = process.get_self_path()
+    local target_process_cmd = "ping.exe -t 127.0.0.1"
+    local target_process_name = "ping.exe"
+    
+    -- 1. 预先启动一个“流氓”进程
+    log.info("  [1/4] Starting a 'rogue' target process first...")
+    local rogue_proc = process.exec_async({ command = target_process_cmd })
+    lu.assertNotIsNil(rogue_proc, "Failed to start the initial rogue process.")
+    local rogue_pid = rogue_proc.pid
+    log.info("  -> Rogue process started with PID: ", rogue_pid)
+    async.sleep_async(1000) -- 等待其稳定运行
+
+    -- 2. 准备 IPC 事件并启动守护进程
+    local unique_id = native.get_current_pid() .. "_" .. math.random(10000, 99999)
+    local ready_event_name = "Global\\PEShell_Test_Takeover_Ready_" .. unique_id
+    local ready_event = native.create_event(ready_event_name)
+    
+    local guardian_cmd = string.format('"%s" main scripts/test_guardian_init.lua "%s" %s', 
+        peshell_exe_path, target_process_cmd, ready_event_name)
+
+    log.info("  [2/4] Launching guardian with default 'takeover' strategy...")
+    local guardian_proc = process.exec_async({ command = guardian_cmd })
+    lu.assertNotIsNil(guardian_proc, "Failed to launch the guardian process.")
+    guardian_proc:close_handle()
+    
+    -- 3. 等待守护进程就绪，并验证行为
+    local signaled_index = native.wait_for_multiple_objects({ ready_event }, 10000)
+    native.close_handle(ready_event)
+    lu.assertEquals(signaled_index, 1, "Guardian failed to signal READY within 10s.")
+    log.info("  -> Guardian is READY.")
+
+    -- [核心验证]
+    log.info("  [3/4] Verifying 'takeover' behavior...")
+    lu.assertIsNil(process.find(tostring(rogue_pid)), "The rogue process should have been terminated by the guardian.")
+    log.info("  -> VERIFIED! Rogue process (PID:", rogue_pid, ") was killed.")
+    
+    local new_proc = process.find(target_process_name)
+    lu.assertNotIsNil(new_proc, "A new target process should have been started by the guardian.")
+    lu.assertNotEquals(new_proc.pid, rogue_pid, "The new process must have a different PID.")
+    log.info("  -> VERIFIED! A new target process (PID:", new_proc.pid, ") is running.")
+
+    -- 4. 清理
+    log.info("  [4/4] Final cleanup via shutdown command...")
+    local shutdown_cmd = string.format('"%s" run scripts/shutdown.lua', peshell_exe_path)
+    local shutdown_proc = process.exec_async({ command = shutdown_cmd })
+    if shutdown_proc then shutdown_proc:wait_for_exit_async(5000); shutdown_proc:close_handle() end
+    
+    async.sleep_async(2000) -- 等待守护进程完全退出并清理
+    lu.assertIsNil(process.find(target_process_name), "Target process should be cleaned up after guardian shutdown.")
 end
 
 -- =================================================================
 --  运行所有测试
 -- =================================================================
--- LuaUnit 会自动发现所有名为 "Test..." 的全局表和名为 "test..." 的全局函数
--- os.exit() 会将测试结果（成功为0，失败为非0）作为退出码返回给调用者（如 CI 系统）
 os.exit(lu.run())

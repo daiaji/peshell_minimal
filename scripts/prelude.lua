@@ -1,22 +1,10 @@
 -- scripts/prelude.lua
 -- PEShell 自动预加载脚本
--- 职责：
--- 1. 创建全局命名空间和命令注册表。
--- 2. 自动扫描并加载所有 API 模块。
--- 3. 自动注册模块声明的子命令。
--- 4. 注册框架级的核心命令 (main, run, help)。
 
--- ########## 关键修复 ##########
--- 在使用 lfs 之前，必须先通过 require 加载它。
--- C++ 代码已经通过 package.preload 将其注册，所以这里可以直接调用。
 local lfs = require("lfs")
--- ############################
-
--- 创建全局的命令注册表和 API 命名空间
 _G.PESHELL_COMMANDS = {}
 _G.pesh = {}
 
--- 引入日志作为第一个 API
 local log_status, log_mod = pcall(require, "pesh-api.log")
 if not log_status then
     print("CRITICAL ERROR: Failed to load core log module: " .. tostring(log_mod))
@@ -24,10 +12,6 @@ if not log_status then
 end
 pesh.log = log_mod
 
----
--- 全局函数，用于注册一个子命令
--- @param name string: 命令名
--- @param implementation function: 实现该命令的函数
 function RegisterCommand(name, implementation)
     if _G.PESHELL_COMMANDS[name] then
         pesh.log.warn("Command '", name, "' is being redefined.")
@@ -35,12 +19,9 @@ function RegisterCommand(name, implementation)
     _G.PESHELL_COMMANDS[name] = implementation
 end
 
--- 自动扫描并加载所有 pesh-api 模块
--- 获取当前脚本所在的目录
 local api_path = debug.getinfo(1, "S").source:match("@(.+)[\\/]") .. "pesh-api"
 pesh.log.info("Prelude: Scanning for API modules in '", api_path, "'...")
 
--- 现在 lfs 已经加载，可以安全地调用 lfs.dir
 for file in lfs.dir(api_path) do
     if file:match("%.lua$") then
         local module_name = file:gsub("%.lua$", "")
@@ -76,6 +57,13 @@ local function main_command(...)
         pesh.log.critical("main: No initialization script specified. Aborting.")
         return 1
     end
+    
+    -- [关键修正] 将剩余的参数设置到 _G.arg 中，以便被调用的脚本可以访问它们
+    _G.arg = {}
+    for i = 2, #args do
+        table.insert(_G.arg, args[i])
+    end
+
     pesh.log.info("main: Starting PE guardian mode with script '", init_script, "'.")
     local success, err = pcall(dofile, init_script)
     if not success then
@@ -98,9 +86,9 @@ local function run_command(...)
     local success, err = pcall(dofile, script_to_run)
     if not success then
         pesh.log.error("run: An error occurred while running script '", script_to_run, "':\n", tostring(err))
-        return 1 -- 返回非零值表示错误
+        return 1
     end
-    return 0 -- 返回0表示成功
+    return 0
 end
 
 ---

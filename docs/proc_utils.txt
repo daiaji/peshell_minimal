@@ -1,500 +1,401 @@
-好的，这是根据您提供的所有源代码文件生成的完整、详尽的纯文本文档。
+=====================================================
+Proc-Utils: C++ Win32 进程管理工具库 - 技术文档
+=====================================================
 
-```txt
-======================================================================
- Proc-Utils: C++ Win32 进程管理工具库 - 纯文本文档
-======================================================================
+文件版本: 1.0
+文档生成日期: 2025-11-16
 
-文档版本: 1.0
-最后更新: 2023-10-27
+目录
+-------
+1.0 简介
+2.0 功能特性
+3.0 如何使用
+    3.1 C 语言接口使用方法
+    3.2 C++ 封装使用方法 (推荐)
+4.0 从源码构建
+5.0 C 语言 API 参考
+    5.1 结构体定义
+    5.2 模块 1：进程查找与枚举
+    5.3 模块 2：进程创建与执行
+    5.4 模块 3：进程信息获取
+    5.5 模块 4：进程控制与交互
+6.0 C++ 封装 (ProcUtils::Process) API 参考
+    6.1 设计理念
+    6.2 静态工厂方法
+    6.3 成员方法
+7.0 许可证
 
-本文档详细介绍了 proc_utils 库的设计、功能、编译、使用方法和 API 参考。
-所有内容均从提供的源代码、构建脚本和 CI/CD 流程中提炼而来。
+
+1.0 简介
+----------
+`proc_utils` 是一个轻量级的、无外部依赖的工具库，为 Windows 平台提供了一套简洁、健壮的 C 语言接口和现代化的 C++ 封装，用于常见的进程管理任务。
+
+该库旨在原子化和简化与进程相关的操作，如查找、创建、终止、等待以及获取详细信息，使其可以被 C/C++、Python、Lua (via FFI) 等多种语言轻松调用。所有 C 接口在失败时都会设置标准的 Win32 错误码，可通过 `GetLastError()` 获取。
 
 
-----------------------------------------------------------------------
-1. 概述
-----------------------------------------------------------------------
+2.0 功能特性
+------------
+*   进程查找与枚举:
+    - 按 PID 或进程名打开进程并获取句柄。
+    - 检查进程是否存在。
+    - 查找所有同名进程的 PID 列表。
 
-`proc_utils` 是一个为 Windows 平台设计的轻量级、无外部依赖的进程管理工具库。它以动态链接库 (DLL) 和静态库 (.lib) 的形式提供，核心是一套简洁、易用的 C 语言接口，使其可以被 C/C++、Python、C# 等多种语言轻松调用。
-
-该库旨在封装繁琐的 Win32 API 调用，简化与进程相关的常见操作，例如：查找、启动、终止、等待、获取信息以及修改进程属性。
-
-此外，库还提供了一个可选的头文件级 C++ 封装 (Wrapper)，为 C++ 开发者带来了更现代化、更安全的编程体验，特别是通过 RAII (资源获取即初始化) 机制自动管理进程句柄，避免了资源泄漏。
-
-
-----------------------------------------------------------------------
-2. 功能特性
-----------------------------------------------------------------------
-
-*   进程查找:
-    - 按进程名或 PID 检查进程是否存在。
-    - 查找所有同名进程，并返回它们的 PID 列表。
-
-*   进程执行:
-    - `CreateProcess`: 创建新进程，并原子性地返回其 PID 和一个有效的进程句柄，用于需要后续操作（如等待、查询状态）的高级场景。
-    - `LaunchProcess`: 以“发后不理”的方式启动新进程，只返回 PID，适用于简单、快速的启动任务，无需管理句柄。
+*   进程创建与执行:
+    - `CreateProcess`: 创建新进程，并原子性地返回 PID 和进程句柄。
+    - `LaunchProcess`: 以“发后不理”的方式启动新进程，只返回 PID。
+    - `CreateProcessAsSystem`: 在当前活动桌面以 `SYSTEM` 权限创建进程。
 
 *   进程终止:
-    - 强制终止指定的单个进程。
-    - 递归地终止一个完整的进程树（包括其所有子进程）。
+    - 按 PID 强制终止指定进程。
+    - 终止一个完整的进程树，包括所有子进程。
 
 *   进程等待:
-    - 同步等待，直到指定名称的进程出现，可设置超时。
-    - 同步等待，直到指定的进程结束，可设置超时。
+    - 同步等待，直到指定名称的进程出现。
+    - 同步等待，直到指定进程结束。
+    - 通过进程句柄高效等待进程结束。
 
 *   信息获取:
-    - 获取进程可执行文件的完整路径。
-    - 获取指定进程的父进程 PID。
-    - 获取进程的详细信息结构体，包含 PID、父 PID、可执行文件路径、内存使用量（工作集）和线程数。
+    - 获取进程的详细信息，包括 PID、父 PID、会话 ID、内存使用、线程数、可执行文件路径以及完整的命令行参数。
+    - 单独获取进程的父进程 PID 或命令行。
 
 *   属性修改:
-    - 设置进程的 CPU 优先级（支持：低、低于正常、正常、高于正常、高、实时）。
+    - 设置进程的 CPU 优先级。
 
-*   核心设计:
-    - 纯 C 接口: 所有导出的函数均为 `extern "C"`，确保了最大的跨语言 ABI 兼容性。
-    - 可选的 C++ 封装: 提供 `ProcUtils::Process` 类，实现 RAII 句柄管理、移动语义和链式调用风格。
-    - 健壮的错误处理: 所有 C 接口在失败时都会通过 `SetLastError()` 设置标准的 Win32 错误码，调用者可通过 `GetLastError()` 获取详细错误信息。
-
-
-----------------------------------------------------------------------
-3. 项目结构
-----------------------------------------------------------------------
-
-proc_utils/
-|
-+-- .github/
-|   +-- workflows/
-|       +-- ci.yml             # 持续集成工作流 (格式化、分析、构建、测试)
-|       +-- release.yml        # 自动发布工作流 (构建动态/静态包并上传)
-|
-+-- build/                     # (生成) 构建目录
-|
-+-- include/
-|   +-- proc_utils.h           # 公共头文件，包含 C 接口和 C++ 封装
-|
-+-- src/
-|   +-- proc_utils_core.cpp    # 核心 API 实现 (创建、关闭、等待等)
-|   +-- proc_utils_impl.cpp    # 内部辅助函数实现 (遍历、查找等)
-|   +-- proc_utils_info.cpp    # 获取进程信息的 API 实现
-|   +-- proc_utils_internal.h  # 内部共享的头文件
-|
-+-- tests/
-|   +-- run_tests.py           # Python 编写的端到端测试套件
-|
-+-- .clang-format              # ClangFormat 代码格式化规则
-+-- .gitignore                 # Git 忽略文件配置
-+-- CMakeLists.txt             # CMake 构建脚本
-+-- README.md                  # 项目说明文档 (Markdown格式)
+*   接口设计:
+    - 纯 C 接口 (`extern "C"`)，确保了跨语言调用的兼容性。
+    - 提供一个头文件级别的现代 C++ 封装 (`ProcUtils::Process` 类)，使用 RAII 自动管理进程句柄，并通过移动语义和 `std::optional` 提供类型安全。
 
 
-----------------------------------------------------------------------
-4. 编译与构建
-----------------------------------------------------------------------
+3.0 如何使用
+------------
+你需要 `proc_utils.dll` (或 `proc_utils.lib` 用于静态链接) 和 `proc_utils.h` 这两个文件。
 
-本项目使用 CMake 进行构建，需要一个支持 C++17 的编译器。
+1.  将 `proc_utils.h` 包含到您的源代码中。
+2.  链接 `proc_utils.lib`。
+3.  确保 `proc_utils.dll` 在运行时可被找到 (如果使用动态链接)。
 
-4.1. 编译环境要求
-    - CMake (3.10 或更高版本)
-    - Visual Studio 2017 或更高版本 (Windows SDK 必须安装)
+3.1 C 语言接口使用方法
 
-4.2. 编译步骤
+    #include "proc_utils.h"
+    #include <stdio.h>
+    #include <windows.h>
 
-    1. 克隆仓库:
-       git clone <your-repository-url>
-       cd proc_utils
+    #pragma comment(lib, "proc_utils.lib")
 
-    2. 创建并进入构建目录:
-       mkdir build
-       cd build
-
-    3. 生成项目文件 (以 Visual Studio 2022 64位为例):
-       
-       A) 构建动态库 (.dll) (默认选项):
-          cmake .. -G "Visual Studio 17 2022" -A x64
-
-       B) 构建静态库 (.lib):
-          cmake .. -G "Visual Studio 17 2022" -A x64 -DBUILD_SHARED_LIBS=OFF
-
-    4. 编译项目:
-
-       A) 通过命令行 (推荐):
-          cmake --build . --config Release
-
-       B) 通过 Visual Studio IDE:
-          用 Visual Studio 打开在 `build` 目录下生成的 `proc_utils.sln` 文件，
-          然后在解决方案资源管理器中选择 `Release` 配置并生成解决方案。
-
-4.3. 编译产物
-
-    编译成功后，您将在 `build\Release` (或 `build\Debug`) 目录下找到以下文件：
-
-    - 如果构建动态库:
-      - `proc_utils.dll`: 动态链接库文件，程序运行时需要。
-      - `proc_utils.lib`: 导入库文件，链接时需要。
-
-    - 如果构建静态库:
-      - `proc_utils.lib`: 静态库文件，链接时需要。
-
-
-----------------------------------------------------------------------
-5. 使用指南
-----------------------------------------------------------------------
-
-5.1. 在 C/C++ 项目中集成
-
-    要使用此库，您需要以下文件：
-    1. `proc_utils.h`: 包含到您的源代码中。
-    2. `proc_utils.lib`: 在链接器设置中添加到您的项目。
-    3. `proc_utils.dll`: (仅当使用动态库时) 确保在程序运行时可以被找到，
-       通常是与您的可执行文件放在同一目录。
-
-5.2. C 语言接口使用示例
-
-#include "proc_utils.h"
-#include <stdio.h>
-#include <windows.h>
-
-// 告知链接器链接 proc_utils.lib
-#pragma comment(lib, "proc_utils.lib")
-
-int main() {
-    const wchar_t* process_name = L"notepad.exe";
-
-    // 场景1: "发后不理"式启动，简单快捷
-    unsigned int pid = ProcUtils_LaunchProcess(process_name, NULL, SW_SHOW, NULL);
-    if (pid > 0) {
-        printf("成功启动 notepad.exe, PID: %u\n", pid);
-        Sleep(2000);
+    int main() {
+        const wchar_t* process_name = L"notepad.exe";
         
-        // 按进程名关闭
-        if (ProcUtils_ProcessClose(process_name, 0)) {
-            printf("已关闭 notepad.exe\n");
+        // 场景: 创建进程并等待其结束
+        // ProcUtils_CreateProcess 返回一个包含句柄的结构体
+        ProcUtils_ProcessResult result = ProcUtils_CreateProcess(process_name, NULL, SW_SHOW, NULL);
+        
+        if (result.pid > 0 && result.process_handle != NULL) {
+            printf("CreateProcess 成功, PID: %u, Handle: %p\n", result.pid, result.process_handle);
+
+            printf("等待 3 秒或直到进程关闭...\n");
+            
+            // 使用新的基于句柄的等待函数，这是最高效的方式
+            ProcUtils_WaitForProcessExit(result.process_handle, 3000);
+            
+            printf("等待结束。\n");
+
+            // *重要*: C 接口要求调用者必须手动关闭通过 CreateProcess 获取的句柄！
+            CloseHandle(result.process_handle);
+        } else {
+            printf("创建进程失败，错误码: %lu\n", result.last_error_code);
         }
-    } else {
-        printf("启动 notepad.exe 失败, 错误码: %lu\n", GetLastError());
-    }
-
-    printf("\n");
-
-    // 场景2: 创建进程并获取句柄，用于高级操作
-    ProcUtils_ProcessResult result = ProcUtils_CreateProcess(process_name, NULL, SW_SHOW, NULL);
-    if (result.pid > 0) {
-        printf("CreateProcess 成功, PID: %u, Handle: %p\n", result.pid, result.process_handle);
-
-        // 使用返回的句柄等待进程结束 (最多等待3秒)
-        WaitForSingleObject(result.process_handle, 3000);
-        printf("等待结束或超时。\n");
-
-        // **重要**: 调用者必须负责关闭 CreateProcess 返回的句柄！
-        CloseHandle(result.process_handle);
-        printf("已手动关闭句柄。\n");
-    } else {
-        printf("CreateProcess 失败, 错误码: %lu\n", GetLastError());
-    }
-    
-    return 0;
-}
-
-5.3. C++ 封装使用示例 (推荐)
-
-`proc_utils.h` 包含了一个可选的 C++ 封装，可以提供更现代和安全的编程体验。
-要使用它，只需正常包含头文件即可，无需额外定义。
-
-#include "proc_utils.h" // 同时包含了 C++ 封装
-#include <iostream>
-#include <windows.h>
-
-#pragma comment(lib, "proc_utils.lib")
-
-int main() {
-    // 使用 C++ Wrapper 的静态工厂方法 `exec` 创建进程
-    // `notepad` 对象通过 RAII 管理进程句柄的生命周期
-    auto notepad = ProcUtils::Process::exec(L"notepad.exe", nullptr, SW_SHOW);
-    
-    if (notepad.is_valid()) {
-        std::wcout << L"成功启动 notepad.exe, PID: " << notepad.id() 
-                   << L", Handle: " << notepad.handle() << std::endl;
         
-        // 获取进程详细信息
-        auto info = notepad.get_info(); // 返回 std::optional
-        if (info) {
-            std::wcout << L"  路径: " << info->exe_path << std::endl;
-            std::wcout << L"  父进程ID: " << info->parent_pid << std::endl;
-            std::wcout << L"  内存使用: " << info->memory_usage_bytes / 1024 << L" KB" << std::endl;
-            std::wcout << L"  线程数: " << info->thread_count << std::endl;
+        return 0;
+    }
+
+3.2 C++ 封装使用方法 (推荐)
+
+    #include "proc_utils.h"
+    #include <iostream>
+    #include <string>
+
+    #pragma comment(lib, "proc_utils.lib")
+
+    int main() {
+        // 使用 C++ 封装，它通过 RAII 自动管理句柄的生命周期。
+        // 使用 std::optional 进行安全的错误处理。
+        if (auto notepad = ProcUtils::Process::exec(L"notepad.exe C:\\log.txt")) {
+            // notepad 是一个 std::optional<ProcUtils::Process>
+            std::wcout << L"成功启动 notepad.exe, PID: " << notepad->id() 
+                       << L", Handle: " << notepad->handle() << std::endl;
+            
+            // 获取增强的进程信息
+            if (auto info = notepad->get_info()) {
+                std::wcout << L"  路径: " << info->exe_path << std::endl;
+                std::wcout << L"  命令行: " << info->command_line << std::endl;
+                std::wcout << L"  父进程ID: " << info->parent_pid << std::endl;
+                std::wcout << L"  内存使用: " << info->memory_usage_bytes / 1024 << " KB" << std::endl;
+            }
+
+            notepad->wait_for_exit(3000); // 等待最多3秒
+            
+            // notepad 对象离开作用域时，其析构函数会自动调用 CloseHandle，无需手动管理。
         }
-
-        Sleep(3000);
+        else {
+            std::wcerr << L"启动 notepad.exe 失败, 错误码: " << GetLastError() << std::endl;
+        }
         
-        // 可以选择主动关闭进程
-        // notepad.close(); 
+        std::wcout << L"notepad.exe 已关闭或其句柄已被自动释放。" << std::endl;
         
-    } else {
-        std::wcout << L"启动 notepad.exe 失败!" << std::endl;
+        return 0;
     }
 
-    // 当 `notepad` 对象离开此作用域时，其析构函数会自动调用 CloseHandle
-    // 无需任何手动管理，杜绝了句柄泄漏的风险。
-    std::wcout << L"notepad 对象已销毁，句柄被自动释放。" << std::endl;
-    
-    return 0;
-}
+
+4.0 从源码构建
+----------------
+你需要 CMake (3.10+) 和一个支持 C++17 的编译器 (例如 Visual Studio 2022)。
+
+1.  克隆或下载仓库。
+2.  打开命令行工具 (如 x64 Native Tools Command Prompt for VS)。
+3.  进入项目根目录。
+4.  执行以下命令：
+
+    // 配置 (构建动态库 .dll, 这是默认选项)
+    cmake -B build -G "Visual Studio 17 2022" -A x64
+
+    // 配置 (构建静态库 .lib)
+    cmake -B build -G "Visual Studio 17 2022" -A x64 -DBUILD_SHARED_LIBS=OFF
+
+    // 编译
+    cmake --build build --config Release
+
+5.  构建产物位于 `build/Release` 目录下。
 
 
-----------------------------------------------------------------------
-6. C 语言 API 详细参考
-----------------------------------------------------------------------
+5.0 C 语言 API 参考
+---------------------
 
-重要提示: 当函数返回表示失败的值 (如 false, 0, NULL, -1) 时，
-可以立即调用 Windows API `GetLastError()` 来获取详细的错误代码。
+5.1 结构体定义
 
----
-函数: ProcUtils_ProcessExists
-签名: PROC_UTILS_API unsigned int ProcUtils_ProcessExists(const wchar_t* process_name_or_pid);
-描述: 按进程名或 PID 字符串查找一个正在运行的进程。
-参数:
-  - process_name_or_pid: 指向宽字符字符串的指针，内容可以是进程名 (如 L"notepad.exe") 或进程ID的字符串形式 (如 L"12345")。
-返回:
-  - 成功: 返回找到的第一个匹配进程的 PID (一个大于0的整数)。
-  - 失败或未找到: 返回 0。
-  - `process_name_or_pid` 为 NULL 或空字符串时，返回 0 并设置错误码 `ERROR_INVALID_PARAMETER`。
+*   struct ProcUtils_ProcessInfo
+    描述: 存储进程的详细信息。
+    字段:
+    - DWORD pid: 进程 ID.
+    - DWORD parent_pid: 父进程 ID.
+    - DWORD session_id: 进程所属的会话 ID.
+    - wchar_t exe_path[260]: 可执行文件的完整路径.
+    - wchar_t command_line[2048]: 启动进程的完整命令行.
+    - unsigned long long memory_usage_bytes: 进程工作集大小 (物理内存使用量).
+    - DWORD thread_count: 进程拥有的线程数.
 
----
-函数: ProcUtils_ProcessClose
-签名: PROC_UTILS_API bool ProcUtils_ProcessClose(const wchar_t* process_name_or_pid, unsigned int exit_code);
-描述: 强制终止一个进程。
-参数:
-  - process_name_or_pid: 要终止的进程名或 PID 字符串。
-  - exit_code: 指定进程的退出代码。
-返回:
-  - 成功: 返回 true。
-  - 失败: 返回 false (例如，进程不存在或没有权限)。
+*   struct ProcUtils_ProcessResult
+    描述: ProcUtils_CreateProcess 函数的返回值，包含 PID、句柄和错误码。
+    *注意*: 调用者获得句柄后，有责任在不再需要时调用 `CloseHandle()` 来释放它。
+    字段:
+    - DWORD pid: 创建的进程 ID.
+    - void* process_handle: 创建的进程句柄 (类型为 HANDLE).
+    - DWORD last_error_code: 如果创建失败，这里会包含 GetLastError() 的值.
 
----
-函数: ProcUtils_ProcessWait
-签名: PROC_UTILS_API unsigned int ProcUtils_ProcessWait(const wchar_t* process_name, int timeout_ms);
-描述: 同步等待，直到具有指定名称的进程出现。
-参数:
-  - process_name: 要等待的进程的名称 (如 L"notepad.exe")。
-  - timeout_ms: 等待的超时时间（毫秒）。如果为负数，则无限期等待。
-返回:
-  - 成功: 返回新出现的进程的 PID。
-  - 超时或失败: 返回 0。
+5.2 模块 1：进程查找与枚举
 
----
-函数: ProcUtils_ProcessWaitClose
-签名: PROC_UTILS_API bool ProcUtils_ProcessWaitClose(const wchar_t* process_name_or_pid, int timeout_ms);
-描述: 同步等待，直到指定的进程结束。
-参数:
-  - process_name_or_pid: 要等待其结束的进程名或 PID 字符串。
-  - timeout_ms: 等待的超时时间（毫秒）。如果为负数，则无限期等待。
-返回:
-  - 成功 (进程已结束): 返回 true。
-  - 超时或失败: 返回 false。
+*   void* ProcUtils_OpenProcessByPid(DWORD pid, DWORD desired_access)
+    描述: 通过进程 ID (PID) 打开一个已存在的进程对象。
+    参数:
+    - pid: 目标进程的 ID.
+    - desired_access: 访问权限，例如 `PROCESS_ALL_ACCESS` 或 `PROCESS_QUERY_INFORMATION`。
+    返回值: 成功则返回进程句柄，失败返回 `NULL`。
 
----
-函数: ProcUtils_ProcessGetPath
-签名: PROC_UTILS_API bool ProcUtils_ProcessGetPath(unsigned int pid, wchar_t* out_path, int path_size);
-描述: 获取指定 PID 进程的可执行文件完整路径。
-参数:
-  - pid: 目标进程的 PID。
-  - out_path: 用于接收路径字符串的缓冲区。
-  - path_size: 缓冲区 `out_path` 的大小（以 wchar_t 为单位）。
-返回:
-  - 成功: 返回 true，路径写入 `out_path`。
-  - 失败: 返回 false (例如 PID 无效，缓冲区太小，或权限不足)。
+*   void* ProcUtils_OpenProcessByName(const wchar_t* process_name, DWORD desired_access)
+    描述: 通过进程可执行文件名查找并打开第一个匹配的进程。
+    参数:
+    - process_name: 进程的可执行文件名，例如 L"notepad.exe"。
+    - desired_access: 访问权限。
+    返回值: 成功则返回进程句柄，失败返回 `NULL`。
 
----
-函数: ProcUtils_ProcessGetParent
-签名: PROC_UTILS_API unsigned int ProcUtils_ProcessGetParent(const wchar_t* process_name_or_pid);
-描述: 获取指定进程的父进程 ID。
-参数:
-  - process_name_or_pid: 目标子进程的进程名或 PID 字符串。
-返回:
-  - 成功: 返回父进程的 PID。
-  - 失败或未找到: 返回 0。
+*   int ProcUtils_FindAllProcesses(const wchar_t* process_name, DWORD* out_pids, int pids_array_size)
+    描述: 查找所有与指定名称匹配的进程。此函数有两种工作模式：
+    1.  如果 `out_pids` 为 `NULL`，它只返回找到的进程总数。
+    2.  如果 `out_pids` 是一个有效的数组，它会将找到的 PID 填入该数组，最多填充 `pids_array_size` 个。
+    参数:
+    - process_name: 要查找的进程名称。
+    - out_pids: 用于存储 PID 的数组，或为 `NULL` 以获取计数。
+    - pids_array_size: `out_pids` 数组的大小。
+    返回值: 如果 `out_pids` 为 `NULL`，返回找到的总数。如果提供了 `out_pids`，返回实际存入数组的 PID 数量。失败返回 -1。
 
----
-函数: ProcUtils_ProcessSetPriority
-签名: PROC_UTILS_API bool ProcUtils_ProcessSetPriority(const wchar_t* process_name_or_pid, wchar_t priority);
-描述: 设置进程的 CPU 优先级。
-参数:
-  - process_name_or_pid: 目标进程的进程名或 PID 字符串。
-  - priority: 优先级字符，不区分大小写：
-    'L': 低 (Idle)
-    'B': 低于正常 (Below Normal)
-    'N': 正常 (Normal)
-    'A': 高于正常 (Above Normal)
-    'H': 高 (High)
-    'R': 实时 (Real-time)
-返回:
-  - 成功: 返回 true。
-  - 失败: 返回 false (例如，参数无效或权限不足)。
+*   DWORD ProcUtils_ProcessExists(const wchar_t* process_name_or_pid)
+    描述: 检查一个进程是否存在。
+    参数:
+    - process_name_or_pid: 进程名 (L"notepad.exe") 或 PID 的字符串形式 (L"1234")。
+    返回值: 如果进程存在，返回其 PID (大于 0)。如果不存在，返回 0。
 
----
-函数: ProcUtils_ProcessCloseTree
-签名: PROC_UTILS_API bool ProcUtils_ProcessCloseTree(const wchar_t* process_name_or_pid);
-描述: 终止一个进程及其所有子进程（递归终止）。
-参数:
-  - process_name_or_pid: 进程树根节点的进程名或 PID 字符串。
-返回:
-  - 成功: 返回 true。
-  - 失败 (根进程未找到): 返回 false。
+5.3 模块 2：进程创建与执行
 
----
-函数: ProcUtils_FindAllProcesses
-签名: PROC_UTILS_API int ProcUtils_FindAllProcesses(const wchar_t* process_name, unsigned int* out_pids, int pids_array_size);
-描述: 查找所有具有指定名称的进程，并返回它们的 PID。
-参数:
-  - process_name: 要查找的进程名称。
-  - out_pids: 用于存储找到的 PID 的无符号整型数组。
-  - pids_array_size: `out_pids` 数组的容量。
-返回:
-  - 成功: 返回找到的进程总数。
-    - 如果返回值大于 `pids_array_size`，表示缓冲区不足，但返回值仍然是正确的总数。
-    - 如果返回值小于或等于 `pids_array_size`，则所有找到的 PID 都已写入缓冲区。
-  - 失败: 返回 -1。
+*   ProcUtils_ProcessResult ProcUtils_CreateProcess(const wchar_t* command, const wchar_t* working_dir, int show_mode, const wchar_t* desktop_name)
+    描述: 创建一个新进程，并返回其 PID 和一个可用的句柄。
+    参数:
+    - command: 要执行的完整命令行。
+    - working_dir: 新进程的工作目录，可为 `NULL`。
+    - show_mode: 窗口显示模式，例如 `SW_SHOW` 或 `SW_HIDE`。
+    - desktop_name: 进程运行的桌面名称，通常为 `NULL`。
+    返回值: `ProcUtils_ProcessResult` 结构体。检查 `pid > 0` 和 `process_handle != NULL` 来判断是否成功。失败时，错误码在 `last_error_code` 中。
 
----
-函数: ProcUtils_ProcessGetInfo
-签名: PROC_UTILS_API bool ProcUtils_ProcessGetInfo(unsigned int pid, ProcUtils_ProcessInfo* out_info);
-描述: 获取指定 PID 进程的详细信息。
-参数:
-  - pid: 目标进程的 PID。
-  - out_info: 指向 `ProcUtils_ProcessInfo` 结构体的指针，用于接收信息。
-结构体 `ProcUtils_ProcessInfo` 定义:
-  typedef struct {
-      unsigned int pid;
-      unsigned int parent_pid;
-      wchar_t exe_path[260];
-      unsigned long long memory_usage_bytes; // 工作集大小
-      unsigned int thread_count;
-  } ProcUtils_ProcessInfo;
-返回:
-  - 成功: 返回 true，信息已填入 `out_info`。
-  - 失败: 返回 false。
+*   DWORD ProcUtils_LaunchProcess(const wchar_t* command, const wchar_t* working_dir, int show_mode, const wchar_t* desktop_name)
+    描述: 以“发后不理”的方式启动一个新进程，只返回其 PID，不返回句柄。
+    参数: 同上。
+    返回值: 成功则返回新进程的 PID，失败返回 0。
 
----
-函数: ProcUtils_CreateProcess
-签名: PROC_UTILS_API ProcUtils_ProcessResult ProcUtils_CreateProcess(const wchar_t* command, const wchar_t* working_dir, int show_mode, const wchar_t* desktop_name);
-描述: 创建一个新进程，并原子性地返回其 PID 和一个有效的进程句柄。
-     **警告**: 调用者必须负责对返回的 `process_handle` 调用 `CloseHandle()` 来释放它。
-参数:
-  - command: 完整的命令行字符串 (例如 L"notepad.exe C:\\log.txt")。
-  - working_dir: 新进程的工作目录，可为 NULL。
-  - show_mode: 窗口显示模式 (例如 `SW_HIDE`, `SW_SHOW`)。
-  - desktop_name: 进程运行的桌面名称，可为 NULL。
-结构体 `ProcUtils_ProcessResult` 定义:
-  typedef struct {
-      unsigned int pid;
-      void* process_handle; // 类型为 Windows HANDLE
-  } ProcUtils_ProcessResult;
-返回:
-  - 成功: 返回包含有效 PID (>0) 和句柄 (!=NULL) 的 `ProcUtils_ProcessResult` 结构体。
-  - 失败: 返回 `{0, NULL}`。
+*   ProcUtils_ProcessResult ProcUtils_CreateProcessAsSystem(const wchar_t* command, const wchar_t* working_dir, int show_mode)
+    描述: 尝试在当前活动的控制台会话中以 `SYSTEM` 权限创建一个新进程。*此函数需要调用者拥有足够的权限* (通常是管理员权限)。
+    参数:
+    - command: 要执行的完整命令行。
+    - working_dir: 工作目录。
+    - show_mode: 窗口显示模式。
+    返回值: `ProcUtils_ProcessResult` 结构体，用法同 `ProcUtils_CreateProcess`。
 
----
-函数: ProcUtils_LaunchProcess
-签名: PROC_UTILS_API unsigned int ProcUtils_LaunchProcess(const wchar_t* command, const wchar_t* working_dir, int show_mode, const wchar_t* desktop_name);
-描述: 以“发后不理”的方式启动一个新进程，只返回 PID。此函数内部调用 `CreateProcess` 并立即关闭返回的句柄，调用者无需管理任何资源。
-参数: (同 `ProcUtils_CreateProcess`)
-返回:
-  - 成功: 返回新进程的 PID。
-  - 失败: 返回 0。
+5.4 模块 3：进程信息获取
 
+*   bool ProcUtils_ProcessGetInfo(DWORD pid, ProcUtils_ProcessInfo* out_info)
+    描述: 获取指定 PID 进程的详细信息。
+    参数:
+    - pid: 目标进程的 ID.
+    - out_info: 指向 `ProcUtils_ProcessInfo` 结构体的指针，用于接收信息。
+    返回值: 成功返回 `true`，失败返回 `false`。
 
-----------------------------------------------------------------------
-7. C++ 封装类 (ProcUtils::Process)
-----------------------------------------------------------------------
+*   bool ProcUtils_ProcessGetCommandLine(DWORD pid, wchar_t* out_cmd, int cmd_size)
+    描述: 单独获取指定 PID 进程的完整命令行。
+    参数:
+    - pid: 目标进程的 ID.
+    - out_cmd: 用于存储命令行的宽字符缓冲区。
+    - cmd_size: 缓冲区大小 (以字符计)。
+    返回值: 成功返回 `true`，失败返回 `false`。
 
-7.1. 概述
-    `ProcUtils::Process` 是一个 C++ 类，它封装了 C 接口，提供了更安全、更易用的面向对象接口。
-    核心特性是 RAII：`Process` 对象在其生命周期内管理一个可选的进程句柄。当对象被销毁时，其析构函数会自动关闭句柄，防止资源泄漏。
-    此类是移动唯一的 (move-only)，禁止拷贝，以确保对句柄资源的单一所有权。
+*   bool ProcUtils_ProcessGetPath(DWORD pid, wchar_t* out_path, int path_size)
+    描述: 获取指定 PID 进程的可执行文件完整路径。
+    参数:
+    - pid: 目标进程的 ID.
+    - out_path: 用于存储路径的宽字符缓冲区。
+    - path_size: 缓冲区大小 (以字符计)。
+    返回值: 成功返回 `true`，失败返回 `false`。
 
-7.2. 构造与生命周期
-    - `Process()`: 默认构造函数，创建一个无效的进程对象。
-    - `explicit Process(unsigned int pid)`: 通过 PID 构造，但不获取句柄。适用于只知道 PID 的场景。
-    - `~Process()`: 析构函数，如果持有有效句柄，则自动调用 `CloseHandle`。
-    - `Process(Process&& other)`: 移动构造函数。
-    - `Process& operator=(Process&& other)`: 移动赋值运算符。
+*   DWORD ProcUtils_ProcessGetParent(const wchar_t* process_name_or_pid)
+    描述: 获取指定进程的父进程 ID。
+    参数:
+    - process_name_or_pid: 进程名或 PID 字符串。
+    返回值: 成功返回父进程的 PID，失败返回 0。
 
-7.3. 静态方法 (工厂方法)
-    - `static Process find(const std::wstring& name_or_pid)`:
-      查找进程，返回一个代表该进程的 `Process` 对象 (不含句柄)。
-    - `static std::vector<Process> find_all(const std::wstring& name)`:
-      查找所有同名进程，返回一个 `Process` 对象向量 (不含句柄)。
-    - `static Process exec(const std::wstring& command, ...)`:
-      创建新进程，返回一个持有其句柄的 `Process` 对象。这是推荐的进程创建方式。
-    - `static unsigned int launch(const std::wstring& command, ...)`:
-      以“发后不理”方式启动进程，只返回 PID。
+5.5 模块 4：进程控制与交互
 
-7.4. 成员方法
-    - `bool is_valid() const`: 检查对象是否代表一个有效的进程 (PID > 0)。
-    - `unsigned int id() const`: 返回进程的 PID。
-    - `HANDLE handle() const`: 返回持有的进程句柄 (可能为 NULL)。
-    - `bool close(unsigned int exit_code = 0)`: 终止此进程。
-    - `std::wstring get_path() const`: 获取进程的完整路径。
-    - `std::optional<ProcUtils_ProcessInfo> get_info() const`: 获取进程的详细信息，返回一个 `std::optional` 对象。
+*   bool ProcUtils_ProcessClose(const wchar_t* process_name_or_pid, UINT exit_code)
+    描述: 查找并终止一个进程。
+    参数:
+    - process_name_or_pid: 进程名或 PID 字符串。
+    - exit_code: 进程的退出码。
+    返回值: 成功返回 `true`，失败返回 `false`。
+
+*   bool ProcUtils_TerminateProcessByPid(DWORD pid, UINT exit_code)
+    描述: 通过 PID 直接终止一个进程。
+    参数:
+    - pid: 要终止的进程 ID。
+    - exit_code: 进程的退出码。
+    返回值: 成功返回 `true`，失败返回 `false`。
+
+*   bool ProcUtils_ProcessCloseTree(const wchar_t* process_name_or_pid)
+    描述: 查找一个进程并终止其整个进程树 (包括所有子进程)。
+    参数:
+    - process_name_or_pid: 根进程的名称或 PID 字符串。
+    返回值: 成功返回 `true`，失败返回 `false`。
+
+*   bool ProcUtils_TerminateProcessTreeByPid(DWORD pid)
+    描述: 通过根进程的 PID 终止其整个进程树。
+    参数:
+    - pid: 根进程的 ID。
+    返回值: 成功返回 `true`，失败返回 `false`。
+
+*   bool ProcUtils_ProcessSetPriority(const wchar_t* process_name_or_pid, wchar_t priority)
+    描述: 设置进程的 CPU 优先级。
+    参数:
+    - process_name_or_pid: 进程名或 PID 字符串。
+    - priority: 优先级字符：'L'(低), 'B'(低于正常), 'N'(正常), 'A'(高于正常), 'H'(高), 'R'(实时)。不区分大小写。
+    返回值: 成功返回 `true`，失败返回 `false`。
+
+*   DWORD ProcUtils_ProcessWait(const wchar_t* process_name, int timeout_ms)
+    描述: 同步等待，直到指定名称的进程出现。
+    参数:
+    - process_name: 要等待的进程名称。
+    - timeout_ms: 超时时间 (毫秒)。-1 表示无限等待。
+    返回值: 如果进程出现，返回其 PID。如果超时，返回 0。
+
+*   bool ProcUtils_ProcessWaitClose(const wchar_t* process_name_or_pid, int timeout_ms)
+    描述: 同步等待，直到指定的进程关闭。
+    参数:
+    - process_name_or_pid: 进程名或 PID 字符串。
+    - timeout_ms: 超时时间 (毫秒)。-1 表示无限等待。
+    返回值: 如果进程在超时前关闭，返回 `true`。如果超时，返回 `false`。
+
+*   bool ProcUtils_WaitForProcessExit(void* process_handle, int timeout_ms)
+    描述: 通过进程句柄等待一个进程结束。这是最高效的等待方式。
+    参数:
+    - process_handle: 一个有效的进程句柄 (例如从 `ProcUtils_CreateProcess` 获取)。
+    - timeout_ms: 超时时间 (毫秒)。-1 表示无限等待 (`INFINITE`)。
+    返回值: 如果进程在超时前结束，返回 `true`。如果超时，返回 `false`。
 
 
-----------------------------------------------------------------------
-8. 自动化与测试
-----------------------------------------------------------------------
+6.0 C++ 封装 (ProcUtils::Process) API 参考
+--------------------------------------------
 
-项目包含了一套完整的自动化流程，以确保代码质量、功能正确性和发布的便捷性。
+6.1 设计理念
+*   RAII (资源获取即初始化): `Process` 对象在构造时获取进程句柄，在析构时自动调用 `CloseHandle` 释放句柄，防止资源泄漏。
+*   移动语义: `Process` 对象是移动唯一的 (`move-only`)，禁止拷贝，确保了句柄资源的所有权清晰。
+*   现代 C++ 特性: 使用 `std::optional` 和 `std::vector` 返回结果，避免了空指针和手动管理内存，使接口更安全、更易用。
 
-8.1. 测试套件 (`tests/run_tests.py`)
-    - 这是一个使用 Python `ctypes` 模块编写的端到端测试脚本。
-    - 它直接加载编译好的 `proc_utils.dll`，并调用其导出的 C 函数。
-    - 测试用例覆盖了所有核心功能，包括：
-      - 进程的启动 (`LaunchProcess`) 和创建 (`CreateProcess`)。
-      - 进程存在性检查 (`ProcessExists`)。
-      - 进程的关闭 (`ProcessClose`) 和等待关闭 (`ProcessWaitClose`)。
-      - 超时行为测试。
-      - 信息获取 (`GetPath`, `GetParent`, `GetInfo`)。
-      - 进程树关闭 (`CloseTree`)。
-      - 查找所有进程 (`FindAllProcesses`)。
-      - 对无效输入的健壮性测试。
-    - 运行方式: `python tests/run_tests.py <path_to_build_directory>`
+6.2 静态工厂方法 (推荐的创建方式)
 
-8.2. 持续集成 (CI) (`.github/workflows/ci.yml`)
-    - 此 GitHub Actions 工作流在每次推送或拉取请求时自动触发。
-    - 在 `windows-latest` 环境上运行。
-    - 主要步骤:
-      1. 检出代码。
-      2. **代码格式检查**: 使用 `clang-format` 检查所有 C++/头文件是否符合项目编码风格。
-      3. **设置 MSVC**: 准备 Visual Studio 构建环境。
-      4. **配置 CMake**: 生成 Visual Studio 项目文件。
-      5. **构建与静态分析**: 使用 CMake 编译项目 (Release 配置)，并启用 MSVC 的静态代码分析 (`/p:RunCodeAnalysis=true`)，将分析警告视为错误。
-      6. **运行测试**: 执行 `run_tests.py` 脚本，验证库的实际功能是否正常。
+*   static std::optional<Process> open_by_pid(DWORD pid, DWORD access = PROCESS_ALL_ACCESS)
+    通过 PID 打开进程，返回一个 `Process` 对象。
 
-8.3. 自动发布 (Release) (`.github/workflows/release.yml`)
-    - 此工作流用于自动化创建 GitHub Release 并上传产物。
-    - 触发方式:
-      1. 自动: 当一个 `v*` (如 `v1.0.0`) 格式的 Git 标签被推送到仓库时。
-      2. 手动: 可以在 GitHub Actions 页面手动触发，并指定标签名等参数。
-    - 主要步骤:
-      1. **构建动态库版本**:
-         - 使用 `cmake -DBUILD_SHARED_LIBS=ON` 配置项目。
-         - 编译生成 `proc_utils.dll` 和 `proc_utils.lib`。
-         - 将 `dll`, `lib`, `h` 文件打包成 `proc_utils-shared-vX.Y.Z.zip`。
-      2. **构建静态库版本**:
-         - 清理构建目录。
-         - 使用 `cmake -DBUILD_SHARED_LIBS=OFF` 重新配置项目。
-         - 编译生成静态 `proc_utils.lib`。
-         - 将 `lib`, `h` 文件打包成 `proc_utils-static-vX.Y.Z.zip`。
-      3. **创建 Release**:
-         - 使用 `softprops/action-gh-release` 操作。
-         - 创建一个与 Git 标签同名的 GitHub Release。
-         - **同时上传** `shared` 和 `static` 两个 zip 包作为发布产物。
+*   static std::optional<Process> open_by_name(const std::wstring& name, DWORD access = PROCESS_ALL_ACCESS)
+    通过名称打开进程，返回一个 `Process` 对象。
+
+*   static std::vector<DWORD> find_all_by_name(const std::wstring& name)
+    查找所有同名进程，返回一个包含所有 PID 的 `std::vector`。
+
+*   static std::optional<Process> exec(const std::wstring& command, ...)
+    创建新进程，并返回一个管理该进程的 `Process` 对象。失败则返回 `std::nullopt`。
+
+*   static std::optional<Process> exec_as_system(const std::wstring& command, ...)
+    以 `SYSTEM` 权限创建新进程，并返回一个 `Process` 对象。
+
+*   static DWORD launch(const std::wstring& command, ...)
+    以“发后不理”模式启动进程，只返回 PID。
+
+6.3 成员方法
+
+*   bool is_valid() const
+    检查内部句柄是否有效。
+
+*   DWORD id() const
+    返回进程的 PID。
+
+*   HANDLE handle() const
+    返回进程的句柄。
+
+*   bool terminate(UINT exit_code = 0)
+    终止此进程。
+
+*   static bool terminate_by_pid(DWORD pid, UINT exit_code = 0)
+    静态方法，通过 PID 终止进程。
+
+*   bool terminate_tree()
+    终止此进程及其所有子进程。
+
+*   bool wait_for_exit(int timeout_ms = -1)
+    等待此进程结束。
+
+*   std::optional<ProcUtils_ProcessInfo> get_info() const
+    获取此进程的详细信息。
+
+*   std::optional<std::wstring> get_command_line() const
+    获取此进程的命令行。
+
+*   std::wstring get_path() const
+    获取此进程的可执行文件路径。
 
 
-----------------------------------------------------------------------
-9. 许可证
-----------------------------------------------------------------------
-
+7.0 许可证
+------------
 本项目采用 MIT 许可证。
-
-```

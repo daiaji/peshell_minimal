@@ -19,19 +19,17 @@ log.info("Step 1: Running wpeinit for hardware initialization...")
 local windir = os.getenv("WinDir")
 if not windir then
     log.critical("Could not get %WinDir% environment variable. Aborting.")
-    -- 在 main 模式下，不应该轻易退出，但这里是个致命错误
     return
 end
 
--- 构造 wpeinit.exe 的完整路径
 local wpeinit_cmd = windir .. "\\System32\\wpeinit.exe"
 log.debug("wpeinit command line: ", wpeinit_cmd)
 
--- 执行 wpeinit.exe 并同步等待它完成。
--- 硬件初始化是后续步骤的基础，所以必须等待。
-local wpeinit_proc = process.exec_async({ command = wpeinit_cmd, wait = true })
-
+local wpeinit_proc = process.exec_async({ command = wpeinit_cmd })
 if wpeinit_proc then
+    log.info("wpeinit.exe started, waiting for it to finish...")
+    wpeinit_proc:wait_for_exit_async(-1)
+    wpeinit_proc:close_handle()
     log.info("wpeinit.exe finished.")
 else
     log.warn("Failed to start or wait for wpeinit.exe. Hardware may not function correctly.")
@@ -42,7 +40,6 @@ end
 -- 步骤 2: 初始化 PE 用户环境
 -- ------------------------------------------------------------------
 log.info("Step 2: Initializing PE user session environment (creating folders)...")
--- 这个函数会创建 Desktop, Start Menu 等一系列必要的文件夹
 pe.initialize()
 log.info("PE user environment initialized.")
 
@@ -54,13 +51,9 @@ log.info("Step 3: Locking system shell (explorer.exe)...")
 local explorer_path = windir .. "\\explorer.exe"
 
 -- 调用 lock_shell。
--- 这个函数会创建一个后台协程来持续监控 explorer.exe，
--- 然后函数自身会立即返回，不会阻塞当前脚本。
+-- 它将自动使用默认的 "takeover" 策略：先杀死所有现有的 explorer.exe，
+-- 然后再启动一个新的实例进行守护，确保环境干净。
 shell.lock_shell(explorer_path)
 
 log.info("Shell guardian has been dispatched to the background.")
 log.info("Initialization script has completed its tasks. The C++ host will now remain active in guardian mode.")
-
--- 此脚本到这里就结束了。
--- 但是，由 shell.lock_shell() 创建的后台协程会继续运行，
--- 并且 C++ 宿主的 "persistent message loop" 会确保整个 peshell.exe 进程的存活。
