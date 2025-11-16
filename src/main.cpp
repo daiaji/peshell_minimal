@@ -1,6 +1,6 @@
 ﻿#define WIN32_LEAN_AND_MEAN
-#include <shellapi.h> // For CommandLineToArgvW
 #include <windows.h>
+#include <shellapi.h> // For CommandLineToArgvW
 
 #include <chrono>
 #include <filesystem> // 需要 C++17
@@ -142,36 +142,12 @@ namespace LuaBindings
     }
 
     // 日志函数绑定
-    static int pesh_log_trace(lua_State* L)
-    {
-        spdlog::trace(luaL_checkstring(L, 1));
-        return 0;
-    }
-    static int pesh_log_debug(lua_State* L)
-    {
-        spdlog::debug(luaL_checkstring(L, 1));
-        return 0;
-    }
-    static int pesh_log_info(lua_State* L)
-    {
-        spdlog::info(luaL_checkstring(L, 1));
-        return 0;
-    }
-    static int pesh_log_warn(lua_State* L)
-    {
-        spdlog::warn(luaL_checkstring(L, 1));
-        return 0;
-    }
-    static int pesh_log_error(lua_State* L)
-    {
-        spdlog::error(luaL_checkstring(L, 1));
-        return 0;
-    }
-    static int pesh_log_critical(lua_State* L)
-    {
-        spdlog::critical(luaL_checkstring(L, 1));
-        return 0;
-    }
+    static int pesh_log_trace(lua_State* L) { spdlog::trace(luaL_checkstring(L, 1)); return 0; }
+    static int pesh_log_debug(lua_State* L) { spdlog::debug(luaL_checkstring(L, 1)); return 0; }
+    static int pesh_log_info(lua_State* L) { spdlog::info(luaL_checkstring(L, 1)); return 0; }
+    static int pesh_log_warn(lua_State* L) { spdlog::warn(luaL_checkstring(L, 1)); return 0; }
+    static int pesh_log_error(lua_State* L) { spdlog::error(luaL_checkstring(L, 1)); return 0; }
+    static int pesh_log_critical(lua_State* L) { spdlog::critical(luaL_checkstring(L, 1)); return 0; }
 
     // 进程句柄的垃圾回收 (GC) 函数
     static int process_handle_gc(lua_State* L)
@@ -249,19 +225,10 @@ namespace LuaBindings
         DWORD  desired_access = PROCESS_QUERY_INFORMATION | SYNCHRONIZE | PROCESS_TERMINATE;
         HANDLE handle         = ProcUtils_OpenProcessByName(process_name_w.data(), desired_access);
 
-        if (handle == NULL)
-        {
-            lua_pushnil(L);
-            return 1;
-        }
+        if (handle == NULL) { lua_pushnil(L); return 1; }
 
         DWORD pid = GetProcessId(handle);
-        if (pid == 0)
-        {
-            CloseHandle(handle);
-            lua_pushnil(L);
-            return 1;
-        }
+        if (pid == 0) { CloseHandle(handle); lua_pushnil(L); return 1; }
 
         lua_newtable(L);
         lua_pushinteger(L, pid);
@@ -280,14 +247,9 @@ namespace LuaBindings
     static int pesh_create_event(lua_State* L)
     {
         auto   event_name_w = Utf8ToWide(L, 1);
-        HANDLE hEvent       = CreateEventW(NULL, TRUE, FALSE, event_name_w.data());
-        if (hEvent == NULL)
-        {
-            spdlog::error("Failed to create event. Error: {}", GetLastError());
-            lua_pushnil(L);
-            return 1;
-        }
-
+        HANDLE hEvent = CreateEventW(NULL, TRUE, FALSE, event_name_w.data());
+        if (hEvent == NULL) { spdlog::error("Failed to create event. Error: {}", GetLastError()); lua_pushnil(L); return 1; }
+        
         HANDLE* pHandle = static_cast<HANDLE*>(lua_newuserdata(L, sizeof(HANDLE)));
         *pHandle        = hEvent;
         luaL_getmetatable(L, EVENT_HANDLE_METATABLE);
@@ -300,11 +262,7 @@ namespace LuaBindings
     {
         auto   event_name_w = Utf8ToWide(L, 1);
         HANDLE hEvent       = OpenEventW(EVENT_MODIFY_STATE | SYNCHRONIZE, FALSE, event_name_w.data());
-        if (hEvent == NULL)
-        {
-            lua_pushnil(L);
-            return 1;
-        }
+        if (hEvent == NULL) { lua_pushnil(L); return 1; }
 
         HANDLE* pHandle = static_cast<HANDLE*>(lua_newuserdata(L, sizeof(HANDLE)));
         *pHandle        = hEvent;
@@ -330,66 +288,39 @@ namespace LuaBindings
 
         std::vector<HANDLE> handles;
         int                 n = (int)lua_objlen(L, 1);
-        for (int i = 1; i <= n; i++)
-        {
+        for (int i = 1; i <= n; i++) {
             lua_rawgeti(L, 1, i);
             void* udata = lua_touserdata(L, -1);
-            if (udata)
-            {
-                handles.push_back(*static_cast<HANDLE*>(udata));
-            }
+            if (udata) { handles.push_back(*static_cast<HANDLE*>(udata)); }
             lua_pop(L, 1);
         }
 
-        if (handles.empty())
-        {
-            lua_pushnil(L);
-            lua_pushstring(L, "No handles");
-            return 2;
-        }
+        if (handles.empty()) { lua_pushnil(L); lua_pushstring(L, "No handles"); return 2; }
 
         ULONGLONG start_time = GetTickCount64();
         while (true)
         {
-            ULONGLONG elapsed        = GetTickCount64() - start_time;
-            DWORD     remaining_time = (timeout_dw == INFINITE || elapsed < timeout_dw)
-                                           ? (timeout_dw == INFINITE ? INFINITE : timeout_dw - (DWORD)elapsed)
-                                           : 0;
+            ULONGLONG elapsed = GetTickCount64() - start_time;
+            DWORD remaining_time = (timeout_dw == INFINITE || elapsed < timeout_dw) ? (timeout_dw == INFINITE ? INFINITE : timeout_dw - (DWORD)elapsed) : 0;
 
-            DWORD wait_result =
-                MsgWaitForMultipleObjects((DWORD)handles.size(), handles.data(), FALSE, remaining_time, QS_ALLINPUT);
+            DWORD wait_result = MsgWaitForMultipleObjects((DWORD)handles.size(), handles.data(), FALSE, remaining_time, QS_ALLINPUT);
 
-            if (wait_result >= WAIT_OBJECT_0 && wait_result < (WAIT_OBJECT_0 + handles.size()))
-            {
+            if (wait_result >= WAIT_OBJECT_0 && wait_result < (WAIT_OBJECT_0 + handles.size())) {
                 lua_pushinteger(L, wait_result - WAIT_OBJECT_0 + 1);
                 return 1;
             }
-            if (wait_result == (WAIT_OBJECT_0 + handles.size()))
-            {
+            if (wait_result == (WAIT_OBJECT_0 + handles.size())) {
                 MSG msg;
-                while (PeekMessage(&msg, NULL, 0, 0, PM_REMOVE))
-                {
-                    if (msg.message == WM_QUIT)
-                    {
-                        lua_pushnil(L);
-                        lua_pushstring(L, "WM_QUIT");
-                        return 2;
-                    }
+                while (PeekMessage(&msg, NULL, 0, 0, PM_REMOVE)) {
+                    if (msg.message == WM_QUIT) { lua_pushnil(L); lua_pushstring(L, "WM_QUIT"); return 2; }
                     TranslateMessage(&msg);
                     DispatchMessage(&msg);
                 }
+            } else { // Timeout or error
+                lua_pushnil(L); lua_pushstring(L, "Timeout or failed"); return 2;
             }
-            else
-            { // Timeout or error
-                lua_pushnil(L);
-                lua_pushstring(L, "Timeout or failed");
-                return 2;
-            }
-            if (remaining_time == 0 && timeout_dw != INFINITE)
-            {
-                lua_pushnil(L);
-                lua_pushstring(L, "Timeout");
-                return 2;
+            if (remaining_time == 0 && timeout_dw != INFINITE) {
+                lua_pushnil(L); lua_pushstring(L, "Timeout"); return 2;
             }
         }
     }
@@ -400,22 +331,17 @@ namespace LuaBindings
         PostQuitMessage((int)luaL_optinteger(L, 1, 0));
         return 0;
     }
-
-    // [新增] 封装 CommandLineToArgvW
+    
+    // 封装 CommandLineToArgvW
     static int pesh_commandline_to_argv(lua_State* L)
     {
         auto    command_line_w = Utf8ToWide(L, 1);
         int     argc;
         LPWSTR* argv_w = CommandLineToArgvW(command_line_w.data(), &argc);
-        if (argv_w == NULL)
-        {
-            lua_pushnil(L);
-            return 1;
-        }
+        if (argv_w == NULL) { lua_pushnil(L); return 1; }
 
         lua_newtable(L);
-        for (int i = 0; i < argc; i++)
-        {
+        for (int i = 0; i < argc; i++) {
             WideToUtf8(L, argv_w[i]);
             lua_rawseti(L, -2, i + 1);
         }
@@ -423,42 +349,39 @@ namespace LuaBindings
         return 1;
     }
 
-    // [新增] 封装 SearchPathW
+    // 封装 SearchPathW
     static int pesh_search_path(lua_State* L)
     {
         auto   filename_w = Utf8ToWide(L, 1);
         WCHAR  buffer[MAX_PATH];
         LPWSTR file_part;
         DWORD  result = SearchPathW(NULL, filename_w.data(), NULL, MAX_PATH, buffer, &file_part);
-        if (result > 0)
-        {
-            WideToUtf8(L, buffer);
-        }
-        else
-        {
-            lua_pushnil(L);
-        }
+        if (result > 0) { WideToUtf8(L, buffer); } else { lua_pushnil(L); }
         return 1;
     }
 
+
     // 其他 proc_utils 函数绑定
-    static int pesh_process_exists(lua_State* L)
-    {
-        lua_pushinteger(L, ProcUtils_ProcessExists(Utf8ToWide(L, 1).data()));
-        return 1;
-    }
-    static int pesh_process_close(lua_State* L)
-    {
-        lua_pushboolean(L, ProcUtils_ProcessClose(Utf8ToWide(L, 1).data(), (unsigned int)luaL_optinteger(L, 2, 0)));
-        return 1;
-    }
-    static int pesh_process_close_tree(lua_State* L)
-    {
-        lua_pushboolean(L, ProcUtils_ProcessCloseTree(Utf8ToWide(L, 1).data()));
-        return 1;
-    }
+    static int pesh_process_exists(lua_State* L) { lua_pushinteger(L, ProcUtils_ProcessExists(Utf8ToWide(L, 1).data())); return 1; }
+    static int pesh_process_close(lua_State* L) { lua_pushboolean(L, ProcUtils_ProcessClose(Utf8ToWide(L, 1).data(), (unsigned int)luaL_optinteger(L, 2, 0))); return 1; }
+    static int pesh_process_close_tree(lua_State* L) { lua_pushboolean(L, ProcUtils_ProcessCloseTree(Utf8ToWide(L, 1).data())); return 1; }
+    
+    // 文件系统原生函数绑定
     static int pesh_fs_copy(lua_State* L)
-    { /* ... 已有实现 ... */
+    {
+        auto source_w = Utf8ToWide(L, 1);
+        auto destination_w = Utf8ToWide(L, 2);
+        try
+        {
+            auto options = std::filesystem::copy_options::recursive | std::filesystem::copy_options::overwrite_existing;
+            std::filesystem::copy(std::filesystem::path(source_w.data()), std::filesystem::path(destination_w.data()), options);
+            lua_pushboolean(L, true);
+        }
+        catch (const std::filesystem::filesystem_error& e)
+        {
+            spdlog::error("Native fs_copy failed: {}", e.what());
+            lua_pushboolean(L, false);
+        }
         return 1;
     }
 
@@ -470,11 +393,7 @@ namespace LuaBindings
 lua_State* InitializeLuaState(const std::string& exe_dir)
 {
     lua_State* L = luaL_newstate();
-    if (!L)
-    {
-        spdlog::critical("Failed to create Lua state.");
-        return nullptr;
-    }
+    if (!L) { spdlog::critical("Failed to create Lua state."); return nullptr; }
     luaL_openlibs(L);
 
     // 注册元表
@@ -512,24 +431,20 @@ lua_State* InitializeLuaState(const std::string& exe_dir)
         {"set_event", LuaBindings::pesh_set_event},
         {"post_quit_message", LuaBindings::pesh_post_quit_message},
         {"wait_for_multiple_objects", LuaBindings::pesh_wait_for_multiple_objects},
-        {"log_trace", LuaBindings::pesh_log_trace},
-        {"log_debug", LuaBindings::pesh_log_debug},
-        {"log_info", LuaBindings::pesh_log_info},
-        {"log_warn", LuaBindings::pesh_log_warn},
-        {"log_error", LuaBindings::pesh_log_error},
-        {"log_critical", LuaBindings::pesh_log_critical},
-        {NULL, NULL}};
+        {"log_trace", LuaBindings::pesh_log_trace}, {"log_debug", LuaBindings::pesh_log_debug},
+        {"log_info", LuaBindings::pesh_log_info}, {"log_warn", LuaBindings::pesh_log_warn},
+        {"log_error", LuaBindings::pesh_log_error}, {"log_critical", LuaBindings::pesh_log_critical},
+        {NULL, NULL}
+    };
     lua_newtable(L);
     luaL_setfuncs(L, pesh_native_lib, 0);
     lua_setglobal(L, "pesh_native");
 
     // 设置 package.path
     std::string scripts_path = exe_dir + "\\scripts";
-    size_t      pos          = 0;
-    while ((pos = scripts_path.find('\\', pos)) != std::string::npos)
-    {
-        scripts_path.replace(pos, 1, "\\\\");
-        pos += 2;
+    size_t pos = 0;
+    while ((pos = scripts_path.find('\\', pos)) != std::string::npos) {
+        scripts_path.replace(pos, 1, "\\\\"); pos += 2;
     }
     std::string package_path_update = "package.path = package.path .. ';" + scripts_path + "\\\\?.lua'";
     luaL_dostring(L, package_path_update.c_str());
@@ -553,10 +468,7 @@ int main(int argc, char* argv[])
     spdlog::info("Executable directory: {}", exe_dir);
 
     lua_State* L = InitializeLuaState(exe_dir);
-    if (!L)
-    {
-        return 1;
-    }
+    if (!L) { return 1; }
 
     std::string prelude_script = exe_dir + "\\scripts\\prelude.lua";
     if (luaL_dofile(L, prelude_script.c_str()) != LUA_OK)
@@ -568,7 +480,7 @@ int main(int argc, char* argv[])
         return 1;
     }
 
-    int         return_code = 0;
+    int return_code = 0;
     const char* sub_command = (argc > 1) ? argv[1] : "help";
 
     lua_getglobal(L, "PESHELL_COMMANDS");
@@ -577,31 +489,20 @@ int main(int argc, char* argv[])
     if (!lua_isfunction(L, -1))
     {
         spdlog::error("Unknown command: '{}'", sub_command);
-        lua_getglobal(L, "PESHELL_COMMANDS");
-        lua_getfield(L, -1, "help");
-        if (lua_isfunction(L, -1))
-            lua_pcall(L, 0, 0, 0);
+        lua_getglobal(L, "PESHELL_COMMANDS"); lua_getfield(L, -1, "help");
+        if (lua_isfunction(L, -1)) lua_pcall(L, 0, 0, 0);
         return_code = 1;
     }
     else
     {
-        for (int i = 2; i < argc; ++i)
-        {
-            lua_pushstring(L, argv[i]);
-        }
-        if (lua_pcall(L, argc - 2, 1, 0) != LUA_OK)
-        {
+        for (int i = 2; i < argc; ++i) { lua_pushstring(L, argv[i]); }
+        if (lua_pcall(L, argc - 2, 1, 0) != LUA_OK) {
             const char* error_msg = lua_tostring(L, -1);
             spdlog::critical("Error executing '{}': {}", sub_command, error_msg);
             MessageBoxA(NULL, error_msg, "PEShell Lua Error", MB_ICONERROR | MB_OK);
             return_code = 1;
-        }
-        else
-        {
-            if (lua_isnumber(L, -1))
-            {
-                return_code = (int)lua_tointeger(L, -1);
-            }
+        } else {
+            if (lua_isnumber(L, -1)) { return_code = (int)lua_tointeger(L, -1); }
             lua_pop(L, 1);
         }
     }
