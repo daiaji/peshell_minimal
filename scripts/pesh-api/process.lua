@@ -1,5 +1,5 @@
 -- scripts/pesh-api/process.lua
--- 封装 proc_utils 库，提供面向对象的进程管理 API (重构并修正)
+-- 封装 proc_utils 库，提供面向对象的进程管理 API (重构并修正 v3)
 
 local M = {}
 local native = pesh_native
@@ -21,7 +21,7 @@ function process_metatable.__index:kill_tree()
     return native.process_close_tree(tostring(self.pid))
 end
 
---- [重构核心] 异步等待进程结束 (现在基于句柄)
+--- 异步等待进程结束 (基于句柄)
 function process_metatable.__index:wait_for_exit_async(timeout_ms)
     timeout_ms = timeout_ms or -1
     log.debug("Waiting on handle for process PID ", self.pid, " to exit with timeout ", timeout_ms, "ms.")
@@ -31,11 +31,7 @@ function process_metatable.__index:wait_for_exit_async(timeout_ms)
         return false
     end
     
-    -- [修正 1] 使用正确的函数名: wait_for_multiple_objects
-    -- [修正 2] 将单个句柄 self.handle 包装在一个 table { } 中传递
     local signaled_index, err = native.wait_for_multiple_objects({ self.handle }, timeout_ms)
-
-    -- 函数返回的是被触发的句柄索引，如果是1，则表示我们的进程句柄被触发了（即进程已退出）
     if signaled_index == 1 then
         return true -- 成功等到进程退出
     else
@@ -45,7 +41,7 @@ function process_metatable.__index:wait_for_exit_async(timeout_ms)
 end
 
 
---- [新增] 显式关闭进程句柄 (良好实践)
+--- 显式关闭进程句柄 (良好实践)
 function process_metatable.__index:close_handle()
     if self.handle then
         log.trace("Explicitly closing handle for PID ", self.pid)
@@ -57,17 +53,15 @@ end
 -- ########## Module-level Functions ##########
 
 ---
--- [新增] 根据进程名打开一个已存在的进程，并返回一个包含句柄的进程对象
+-- 根据进程名打开一个已存在的进程，并返回一个包含句柄的进程对象
 -- @param process_name string: 目标进程的可执行文件名 (e.g., "explorer.exe")
 -- @return table|nil: 成功则返回进程对象，否则返回 nil
 function M.open_by_name(process_name)
     log.trace("Attempting to open existing process by name: '", process_name, "'")
-    -- 直接调用新的 C++ 绑定
     local result = native.open_process_by_name(process_name)
 
     if result and result.pid > 0 then
         log.trace("Successfully opened process '", process_name, "' (PID: ", result.pid, "), Handle: ", tostring(result.handle))
-        -- 创建并返回一个标准的进程对象
         local process_obj = { pid = result.pid, handle = result.handle }
         setmetatable(process_obj, process_metatable)
         return process_obj
@@ -87,13 +81,12 @@ function M.find(name_or_pid)
     end
 
     log.trace("Process '", tostring(name_or_pid), "' found with PID: ", pid)
-    -- 注意：通过 find 创建的对象没有句柄，因此不能使用 wait_for_exit_async 的句柄版本
     local process_obj = { pid = pid, handle = nil }
     setmetatable(process_obj, process_metatable)
     return process_obj
 end
 
---- [重构核心] 异步执行一个外部程序
+--- 异步执行一个外部程序
 function M.exec_async(params)
     if not params or not params.command then
         log.error("exec_async failed: 'command' parameter is missing.")
@@ -101,7 +94,6 @@ function M.exec_async(params)
     end
 
     log.info("Executing command via create_process: '", params.command, "'")
-    -- 调用新的 create_process 绑定，它返回一个包含 pid 和 handle 的表
     local result = native.create_process(
         params.command,
         params.working_dir or nil,
@@ -111,7 +103,6 @@ function M.exec_async(params)
 
     if result and result.pid > 0 then
         log.info("Process started successfully with PID: ", result.pid, " and Handle: ", tostring(result.handle))
-        -- 创建进程对象，现在它同时拥有 pid 和 handle
         local process_obj = { pid = result.pid, handle = result.handle }
         setmetatable(process_obj, process_metatable)
         
@@ -121,6 +112,35 @@ function M.exec_async(params)
     log.error("Failed to execute command: '", params.command, "'")
     return nil
 end
+
+---
+-- @description (新) 使用 Windows API 解析一个完整的命令行字符串。
+-- @param cmd_string string: 完整的命令行, e.g., "ping.exe -t localhost"
+-- @return table|nil: 一个包含可执行文件和参数的 table, e.g., { "C:\\Windows\\...\\ping.exe", "-t", "localhost" }
+function M.parse_command_line(cmd_string)
+    log.trace("Parsing command line: '", cmd_string, "'")
+    local parts = native.commandline_to_argv(cmd_string)
+    if not parts or #parts == 0 then
+        log.warn("Failed to parse command line.")
+        return nil
+    end
+
+    -- 进一步处理：找到可执行文件的完整路径
+    local executable_path = native.search_path(parts[1])
+    if executable_path then
+        parts[1] = executable_path
+    else
+        -- 如果 SearchPath 失败，可能是因为路径中包含了引号，需要去掉
+        local cleaned_exe = parts[1]:gsub('^"(.*)"$', '%1')
+        executable_path = native.search_path(cleaned_exe)
+        if executable_path then
+            parts[1] = executable_path
+        end
+    end
+
+    return parts
+end
+
 
 -- ########## Subcommand Definitions ##########
 M.__commands = {
@@ -151,27 +171,42 @@ M.__commands = {
     end,
 
     kill = function(...)
-        if #{ ... } == 0 then log.error("kill: Missing process name or PID."); return; end
+        if #{ ... } == 0 then log.error("kill: Missing process name or PID."); return 1; end
+        local all_ok = true
         for _, target in ipairs({ ... }) do
-            local p = M.find(target)
+            -- [修正] 这里应该用 open_by_name 来获取句柄，以便能够终止它
+            local p = M.open_by_name(target)
+            
             if p then
-                if not p:kill() then log.error("kill: Failed to terminate '", target, "'.") end
+                if not p:kill() then 
+                    log.error("kill: Failed to terminate '", target, "'.")
+                    all_ok = false
+                end
+                p:close_handle()
             else
-                log.warn("kill: Process '", target, "' not found.")
+                log.warn("kill: Process '", target, "' not found or could not be opened.")
+                all_ok = false
             end
         end
+        return all_ok and 0 or 1
     end,
     
     killtree = function(...)
-        if #{ ... } == 0 then log.error("killtree: Missing process name or PID."); return; end
+        if #{ ... } == 0 then log.error("killtree: Missing process name or PID."); return 1; end
+        local all_ok = true
         for _, target in ipairs({ ... }) do
             local p = M.find(target)
             if p then
-                if not p:kill_tree() then log.error("killtree: Failed to terminate tree for '", target, "'.") end
+                if not p:kill_tree() then 
+                    log.error("killtree: Failed to terminate tree for '", target, "'.") 
+                    all_ok = false
+                end
             else
                 log.warn("killtree: Process '", target, "' not found.")
+                all_ok = false
             end
         end
+        return all_ok and 0 or 1
     end
 }
 

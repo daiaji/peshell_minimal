@@ -28,7 +28,6 @@ add_subdirectory(${VENDOR_DIR}/spdlog)
 
 
 # --- 1. LuaJIT (外部构建) ---
-# ... (这部分逻辑不变，保持原样) ...
 set(LUAJIT_SOURCE_DIR ${VENDOR_DIR}/luajit2/src)
 set(LUAJIT_INSTALL_DIR ${CMAKE_BINARY_DIR}/luajit-install)
 set(LUAJIT_INCLUDE_DIR ${LUAJIT_INSTALL_DIR}/include)
@@ -48,7 +47,7 @@ add_custom_command(
     WORKING_DIRECTORY ${LUAJIT_SOURCE_DIR}
     COMMAND cmd.exe /c "msvcbuild.bat" static
     COMMAND ${CMAKE_COMMAND} -E make_directory ${LUAJIT_INSTALL_DIR}/lib
-    COMMAND ${CMAKE_COMMAND} -E make_directory ${LUAJIT_INCLUDE_DIR}
+    COMMAND ${CMAKE_COMMAND} -E make_directory ${LUAJIT_INSTALL_DIR}/include
     COMMAND ${CMAKE_COMMAND} -E copy ${LUAJIT_SOURCE_DIR}/lua51.lib ${LUAJIT_INSTALL_DIR}/lib/
     COMMAND ${CMAKE_COMMAND} -E copy ${LUAJIT_REQUIRED_HEADERS} ${LUAJIT_INCLUDE_DIR}/
     DEPENDS ${VENDOR_DIR}/luajit2/src/msvcbuild.bat
@@ -63,11 +62,6 @@ add_dependencies(luajit luajit_build)
 
 
 # --- 2. proc_utils (作为子项目，编译为静态库) ---
-# -------------------------------------------------------------------------
-# [关键修复 2] 在包含子目录之前，设置其构建选项
-# -------------------------------------------------------------------------
-# 这会确保当 CMake 处理 proc_utils 的 CMakeLists.txt 时，
-# BUILD_SHARED_LIBS 选项已经被设为 OFF，从而从一开始就将其配置为静态库。
 set(BUILD_SHARED_LIBS OFF CACHE BOOL "Force static libraries for subprojects" FORCE)
 add_subdirectory(${VENDOR_DIR}/proc_utils)
 
@@ -95,11 +89,12 @@ target_link_libraries(peshell PRIVATE
     proc_utils
     user32.lib
     psapi.lib
+    shell32.lib # 为 CommandLineToArgvW 添加
     spdlog::spdlog
 )
 
 # ----------------------------------------------------
-# 构建后事件 (保持不变)
+# 构建后事件
 # ----------------------------------------------------
 add_custom_command(
     TARGET peshell POST_BUILD
@@ -108,6 +103,7 @@ add_custom_command(
             "$<TARGET_FILE_DIR:peshell>/scripts"
     COMMENT "Copying scripts to output directory..."
 )
+# 新增：将 luaunit.lua 复制到 scripts 目录中，以便测试套件可以 `require` 它
 add_custom_command(
     TARGET peshell POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy
