@@ -1,5 +1,5 @@
 -- scripts/pesh-api/shell.lua
--- 封装外壳 (Shell) 的加载与守护逻辑 (v3 - 包含退出函数)
+-- 封装外壳 (Shell) 的加载与守护逻辑 (v4 - 增强日志)
 
 local M = {}
 local process = require("pesh-api.process")
@@ -7,12 +7,8 @@ local async = require("pesh-api.async")
 local log = require("pesh-api.log")
 local native = pesh_native
 
--- 定义一个全局唯一的事件名称
 local SHUTDOWN_EVENT_NAME = "Global\\PEShell_Guardian_Shutdown_Event"
 
---
--- 后台守护协程
---
 local function guardian_coroutine(shell_path, shell_name)
     log.info("GUARDIAN: Coroutine started for '", shell_name, "'.")
 
@@ -26,29 +22,35 @@ local function guardian_coroutine(shell_path, shell_name)
     local should_run = true
     while should_run do
         
-        log.info("GUARDIAN: Attempting to adopt existing shell process '", shell_name, "'...")
+        -- 核心逻辑：尝试领养，如果失败则创建
+        log.trace("GUARDIAN: Loop iteration starts. Attempting to find/adopt '", shell_name, "'...")
         local shell_proc = process.open_by_name(shell_name)
 
         if not shell_proc then
-            log.info("GUARDIAN: No existing shell process found. Launching a new one...")
+            -- 领养失败，说明进程不存在，需要我们自己创建
+            log.info("GUARDIAN: Process not found. Launching a new instance of '", shell_path, "'...")
             shell_proc = process.exec_async({ command = shell_path })
+            if shell_proc then
+                log.info("GUARDIAN: Successfully launched new process with PID: ", shell_proc.pid)
+            end
         else
-            log.info("GUARDIAN: Successfully adopted existing shell process with PID: ", shell_proc.pid)
+            -- 领养成功！
+            log.info("GUARDIAN: Successfully adopted existing process with PID: ", shell_proc.pid)
         end
 
         if shell_proc and shell_proc.handle then
-            log.info("GUARDIAN: Now monitoring shell process with PID: ", shell_proc.pid, ".")
+            log.info("GUARDIAN: Monitoring shell process (PID: ", shell_proc.pid, ") and shutdown event.")
 
             local handles_to_wait = { shell_proc.handle, shutdown_event }
             local signaled_index, err = native.wait_for_multiple_objects(handles_to_wait, -1)
 
             if signaled_index == 1 then
-                log.warn("GUARDIAN: Shell process (PID: ", shell_proc.pid, ") terminated. Will restart.")
+                log.warn("GUARDIAN: Shell process (PID: ", shell_proc.pid, ") terminated unexpectedly. Will restart on next loop.")
             elseif signaled_index == 2 then
                 log.info("GUARDIAN: Shutdown event received. Exiting guardian loop.")
                 should_run = false
             else
-                log.error("GUARDIAN: Wait failed or interrupted (", tostring(err), "). Exiting loop.")
+                log.error("GUARDIAN: Wait failed or was interrupted (", tostring(err), "). Exiting loop.")
                 should_run = false
             end
             
@@ -67,7 +69,6 @@ local function guardian_coroutine(shell_path, shell_name)
         running_shell:close_handle()
     end
     
-    -- [关键] 关闭我们自己创建的事件句柄
     native.close_handle(shutdown_event)
     log.info("GUARDIAN: Guardian cleanup complete.")
 
@@ -75,12 +76,16 @@ local function guardian_coroutine(shell_path, shell_name)
     native.post_quit_message(0)
 end
 
----
--- @description 启动并守护一个系统外壳程序。
 function M.lock_shell(shell_path)
-    if not shell_path then
+    if not shell_path or shell_path == "" then
         log.error("Error in lock_shell: shell_path is required.")
-        return
+        return false
+    end
+    
+    -- 检查文件是否存在
+    if not native.search_path(shell_path) then
+        log.error("Error in lock_shell: Executable not found: '", shell_path, "'")
+        return false
     end
 
     local _, _, shell_name = shell_path:find("([^\\\\]+)$")
@@ -92,16 +97,15 @@ function M.lock_shell(shell_path)
     local status, err = coroutine.resume(co, shell_path, shell_name)
     if not status then
         log.critical("SHELL: Failed to start guardian coroutine! ", tostring(err))
+        return false
     end
+    return true
 end
 
----
--- @description 向正在运行的守护进程发送一个优雅的关闭信号。
 function M.exit_guardian()
     log.info("Attempting to signal the guardian process to shut down.")
 
     local shutdown_event = native.open_event(SHUTDOWN_EVENT_NAME)
-
     if not shutdown_event then
         log.error("Could not open the shutdown event. Is the guardian process running?")
         return false
@@ -109,7 +113,7 @@ function M.exit_guardian()
     log.debug("Successfully opened the shutdown event.")
 
     local success = native.set_event(shutdown_event)
-    native.close_handle(shutdown_event) -- [关键] 打开后要记得关闭
+    native.close_handle(shutdown_event)
 
     if success then
         log.info("Shutdown signal sent successfully.")
@@ -120,7 +124,6 @@ function M.exit_guardian()
     end
 end
 
--- 声明要导出的子命令
 M.__commands = {
     shel = function(...)
         local args = { ... }

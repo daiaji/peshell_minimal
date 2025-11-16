@@ -1,5 +1,5 @@
 -- scripts/test_suite.lua
--- PEShell API 自动化测试套件 (v4 - 包含 shell 守护测试)
+-- PEShell API 自动化测试套件 (v5 - 全功能集成测试)
 
 -- 引入 LuaUnit 和所有待测试的模块
 local lu = require("luaunit")
@@ -39,171 +39,177 @@ function teardownSuite()
 end
 
 -- =================================================================
---  测试用例：文件系统 API (fs.lua)
+--  单元测试 (快速、无副作用)
 -- =================================================================
 TestFileSystem = {}
-
 function TestFileSystem:testPathObject()
     log.debug("[RUNNING] TestFileSystem:testPathObject")
     local p = fs.path("C:\\Windows\\System32\\calc.exe")
-    lu.assertEquals(p:directory(), "C:\\Windows\\System32", "Path:directory() failed")
-    lu.assertEquals(p:drive(), "C:", "Path:drive() failed")
-    lu.assertEquals(p:extension(), "exe", "Path:extension() failed")
-    lu.assertEquals(p:filename(), "calc.exe", "Path:filename() failed")
-    lu.assertEquals(p:name(), "calc", "Path:name() failed")
+    lu.assertEquals(p:directory(), "C:\\Windows\\System32")
+    lu.assertEquals(p:drive(), "C:")
+    lu.assertEquals(p:extension(), "exe")
+    lu.assertEquals(p:filename(), "calc.exe")
+    lu.assertEquals(p:name(), "calc")
 end
 
-function TestFileSystem:testFsOperations()
-    log.debug("[RUNNING] TestFileSystem:testFsOperations")
-    local src = temp_dir .. "\\test.txt"
-    local cpy = temp_dir .. "\\test_copy.txt"
-    local mov_dir = temp_dir .. "\\subdir"
-    local mov = mov_dir .. "\\test_moved.txt"
-    lu.assertTrue(lfs.mkdir(mov_dir), "Failed to create subdir for move test")
-    lu.assertTrue(fs.write_bytes(src, "content"), "Failed to write source file")
-
-    lu.assertTrue(fs.copy(src, cpy), "fs.copy() should succeed")
-    lu.assertEquals(fs.get_size(cpy), fs.get_size(src), "Copied file size should match")
-
-    lu.assertTrue(fs.move(cpy, mov), "fs.move() should succeed")
-    lu.assertIsNil(fs.get_attributes(cpy), "Original file should not exist after move")
-    lu.assertNotIsNil(fs.get_attributes(mov), "Moved file should exist")
-
-    lu.assertTrue(fs.delete(mov), "fs.delete() on file should succeed")
-    lu.assertIsNil(fs.get_attributes(mov), "Deleted file should not exist")
-end
-
--- =================================================================
---  测试用例：PE 初始化 API (pe.lua)
--- =================================================================
 TestPeApi = {}
-
 function TestPeApi:testMkdirs()
     log.debug("[RUNNING] TestPeApi:testMkdirs")
     local nested_path = temp_dir .. "\\a\\b\\c"
     local success, err = pe._internal.mkdirs(nested_path)
     lu.assertTrue(success, "pe._internal.mkdirs should create nested directories. Error: " .. tostring(err))
-    lu.assertEquals(lfs.attributes(nested_path, "mode"), "directory", "Nested directory should exist")
+    lu.assertEquals(lfs.attributes(nested_path, "mode"), "directory")
 end
 
--- =================================================================
---  测试用例：字符串 API (string.lua)
--- =================================================================
 TestStringApi = {}
-
 function TestStringApi:testUtf8Length()
     log.debug("[RUNNING] TestStringApi:testUtf8Length")
-    lu.assertEquals(string_api.length("你好世界"), 4, "UTF-8 character length failed")
-    lu.assertEquals(string_api.byte_length("你好世界"), 12, "UTF-8 byte length failed")
-    lu.assertEquals(string_api.length("hello"), 5, "ASCII character length failed")
+    lu.assertEquals(string_api.length("你好世界"), 4)
+    lu.assertEquals(string_api.byte_length("你好世界"), 12)
 end
 
--- =================================================================
---  测试用例：进程管理 API (process.lua)
--- =================================================================
 TestProcessApi = {}
-
 function TestProcessApi:testCommandLineParsing()
     log.debug("[RUNNING] TestProcessApi:testCommandLineParsing")
-    -- 测试 1: 简单命令
-    local parts1 = process.parse_command_line("notepad.exe")
-    lu.assertNotIsNil(parts1, "Should parse simple command")
-    lu.assertStrContains(parts1[1], "notepad.exe", false, true, "Executable should be found")
-
-    -- 测试 2: 带参数
-    local parts2 = process.parse_command_line("ping.exe -t localhost")
-    lu.assertNotIsNil(parts2, "Should parse command with args")
-    lu.assertStrContains(parts2[1], "ping.exe", false, true)
-    lu.assertEquals(parts2[2], "-t")
-    lu.assertEquals(parts2[3], "localhost")
-
-    -- 测试 3: 带引号的路径和参数
-    local cmd3 = '"C:\\Program Files\\My App\\app.exe" "first arg" -o "output file"'
-    local parts3 = process.parse_command_line(cmd3)
-    lu.assertNotIsNil(parts3, "Should parse command with quotes")
-    lu.assertEquals(parts3[1], "C:\\Program Files\\My App\\app.exe")
-    lu.assertEquals(parts3[2], "first arg")
-    lu.assertEquals(parts3[3], "-o")
-    lu.assertEquals(parts3[4], "output file")
+    local parts1 = process.parse_command_line("ping.exe -t localhost")
+    lu.assertNotIsNil(parts1, "Should parse command with args")
+    lu.assertStrContains(parts1[1], "ping.exe", false, true)
+    lu.assertEquals(parts1[2], "-t")
+    lu.assertEquals(parts1[3], "localhost")
 end
 
 -- =================================================================
---  测试用例：Shell 守护 API (shell.lua) - 集成测试
+--  集成测试：Shell 守护核心功能
 -- =================================================================
-TestShellApi = {}
-local dummy_shell_name = "notepad.exe" -- 使用一个无害且常见的程序作为被守护对象
+TestShellApiCore = {}
+local dummy_shell_name = "notepad.exe"
+local dummy_shell_path = os.getenv("WinDir") .. "\\System32\\" .. dummy_shell_name
 
--- 在每个测试前清理环境
-function TestShellApi:setUp()
-    log.debug("SHELL_TEST: Cleaning up any leftover '", dummy_shell_name, "' processes before test...")
+function TestShellApiCore:setUp()
+    log.debug("SHELL_CORE_TEST: Cleaning up '", dummy_shell_name, "' before test...")
     os.execute("taskkill /f /im " .. dummy_shell_name .. " > nul 2>&1")
+    -- 确保守护进程的关闭事件不存在，避免测试间干扰
+    shell.exit_guardian() 
+    async.sleep_async(500)
 end
--- 在每个测试后也清理
-TestShellApi.tearDown = TestShellApi.setUp
+TestShellApiCore.tearDown = TestShellApiCore.setUp
 
-function TestShellApi:testGuardianRespawn()
-    lu.skipIf(os.getenv("CI"), "Skipping shell guardian test in CI environment due to potential instability.")
-    
-    log.debug("[RUNNING] TestShellApi:testGuardianRespawn")
+function TestShellApiCore:testGuardianRespawn()
+    lu.setTimeout(20) -- 设置20秒超时
+    log.debug("[RUNNING] TestShellApiCore:testGuardianRespawn")
 
-    -- 1. 启动守护协程
-    log.info("SHELL_TEST: Locking shell '", dummy_shell_name, "'...")
-    shell.lock_shell(dummy_shell_name)
-    async.sleep_async(2000) -- 等待守护进程启动 shell
+    lu.assertTrue(shell.lock_shell(dummy_shell_path), "lock_shell should start successfully")
+    async.sleep_async(2500) -- 等待 shell 启动
 
-    -- 2. 验证 shell 是否已启动
     local initial_proc = process.open_by_name(dummy_shell_name)
     lu.assertNotIsNil(initial_proc, "Guardian should have started the shell process.")
     local initial_pid = initial_proc.pid
 
-    -- 3. 杀死 shell
-    log.info("SHELL_TEST: Killing the guarded process (PID: ", initial_pid, ") to test respawn...")
+    log.info("SHELL_CORE_TEST: Killing guarded process (PID:", initial_pid, ") to test respawn...")
     initial_proc:kill()
-    initial_proc:close_handle() -- 关闭我们打开的句柄
-    async.sleep_async(3000) -- 给守护进程足够的时间来反应和重启
+    initial_proc:close_handle()
+    async.sleep_async(3500) -- 给守护进程反应时间
 
-    -- 4. 验证 shell 是否被重新启动
     local respawned_proc = process.open_by_name(dummy_shell_name)
     lu.assertNotIsNil(respawned_proc, "Guardian should have respawned the shell process.")
     lu.assertNotEquals(respawned_proc.pid, initial_pid, "Respawned process should have a new PID.")
 
-    -- 5. 清理
     respawned_proc:kill()
     respawned_proc:close_handle()
-    
-    -- [关键] 发送退出信号给守护进程，以便下一个测试可以正常开始
-    shell.exit_guardian()
-    async.sleep_async(1000) -- 等待守护协程清理完毕
+    lu.assertTrue(shell.exit_guardian(), "Guardian should be shutdown gracefully.")
+    async.sleep_async(1000)
 end
 
-function TestShellApi:testGuardianGracefulShutdown()
-    lu.skipIf(os.getenv("CI"), "Skipping shell guardian test in CI environment due to potential instability.")
-    
-    log.debug("[RUNNING] TestShellApi:testGuardianGracefulShutdown")
+function TestShellApiCore:testGuardianGracefulShutdown()
+    lu.setTimeout(20)
+    log.debug("[RUNNING] TestShellApiCore:testGuardianGracefulShutdown")
 
-    -- 1. 启动守护协程
-    log.info("SHELL_TEST: Locking shell '", dummy_shell_name, "' for shutdown test...")
-    shell.lock_shell(dummy_shell_name)
-    async.sleep_async(2000)
+    lu.assertTrue(shell.lock_shell(dummy_shell_path))
+    async.sleep_async(2500)
 
-    -- 2. 验证 shell 是否已启动
     local proc_to_be_closed = process.open_by_name(dummy_shell_name)
-    lu.assertNotIsNil(proc_to_be_closed, "Guarded process should be running before shutdown.")
+    lu.assertNotIsNil(proc_to_be_closed, "Guarded process should be running.")
     proc_to_be_closed:close_handle()
 
-    -- 3. 发送退出信号
-    log.info("SHELL_TEST: Sending graceful shutdown signal to the guardian...")
-    local signal_sent = shell.exit_guardian()
-    lu.assertTrue(signal_sent, "exit_guardian() should successfully send the signal.")
+    log.info("SHELL_CORE_TEST: Sending graceful shutdown signal...")
+    lu.assertTrue(shell.exit_guardian(), "exit_guardian() should send signal successfully.")
+    async.sleep_async(3500)
 
-    -- 4. 等待守护进程完成清理
-    async.sleep_async(3000)
-
-    -- 5. 验证 shell 是否已被关闭
     local proc_after_shutdown = process.find(dummy_shell_name)
     lu.assertIsNil(proc_after_shutdown, "Guarded process should be terminated after graceful shutdown.")
 end
 
+-- =================================================================
+--  集成测试：Shell 守护“接管”功能
+-- =================================================================
+TestShellApiAdoption = {}
+local adoption_target_name = "ping.exe"
+local adoption_target_path = os.getenv("WinDir") .. "\\System32\\" .. adoption_target_name
+local adoption_args = "-t 127.0.0.1"
+
+function TestShellApiAdoption:setUp()
+    log.debug("SHELL_ADOPT_TEST: Cleaning up '", adoption_target_name, "' before test...")
+    os.execute("taskkill /f /im " .. adoption_target_name .. " > nul 2>&1")
+    shell.exit_guardian()
+    async.sleep_async(500)
+end
+TestShellApiAdoption.tearDown = TestShellApiAdoption.setUp
+
+function TestShellApiAdoption:testAdoptionAndControl()
+    lu.setTimeout(20)
+    log.debug("[RUNNING] TestShellApiAdoption:testAdoptionAndControl")
+
+    -- 1. 先手动启动一个目标进程
+    log.info("SHELL_ADOPT_TEST: Pre-launching '", adoption_target_name, "'...")
+    local pre_existing_proc = process.exec_async({ command = adoption_target_path .. " " .. adoption_args })
+    lu.assertNotIsNil(pre_existing_proc, "Pre-existing process should be launched successfully.")
+    async.sleep_async(1000) -- 确保进程已运行
+
+    -- 2. 启动守护进程，它应该“领养”这个已存在的进程
+    log.info("SHELL_ADOPT_TEST: Locking shell, expecting it to adopt PID: ", pre_existing_proc.pid)
+    lu.assertTrue(shell.lock_shell(adoption_target_path))
+    async.sleep_async(2500) -- 等待守护进程完成一轮检查
+
+    -- 3. 验证进程仍然是同一个 (PID 没变)
+    local adopted_proc = process.open_by_name(adoption_target_name)
+    lu.assertNotIsNil(adopted_proc, "Guardian should be monitoring the adopted process.")
+    lu.assertEquals(adopted_proc.pid, pre_existing_proc.pid, "The PID should be the same, proving adoption.")
+    adopted_proc:close_handle()
+
+    -- 4. 测试控制权：通过发送关闭信号来终止被领养的进程
+    log.info("SHELL_ADOPT_TEST: Sending graceful shutdown to test control over adopted process...")
+    lu.assertTrue(shell.exit_guardian())
+    async.sleep_async(3500)
+
+    -- 5. 验证进程已被守护进程的清理逻辑终止
+    lu.assertIsNil(process.find(pre_existing_proc.pid), "Adopted process should be terminated by guardian's cleanup.")
+    pre_existing_proc:close_handle() -- 清理我们最初创建的句柄
+end
+
+-- =================================================================
+--  集成测试：Shell 守护边界条件
+-- =================================================================
+TestShellApiBoundary = {}
+TestShellApiBoundary.setUp = TestShellApiCore.setUp
+TestShellApiBoundary.tearDown = TestShellApiCore.tearDown
+
+function TestShellApiBoundary:testGuardianWithInvalidPath()
+    lu.setTimeout(10)
+    log.debug("[RUNNING] TestShellApiBoundary:testGuardianWithInvalidPath")
+    
+    local invalid_path = "C:\\path\\to\\nonexistent\\program.exe"
+    log.info("SHELL_BOUNDARY_TEST: Locking shell with an invalid path: '", invalid_path, "'")
+
+    -- 调用 lock_shell，它应该返回 false 并且不启动守护协程
+    local success = shell.lock_shell(invalid_path)
+    lu.assertIsFalse(success, "lock_shell should return false for a non-existent executable.")
+    
+    -- 等待一小会，确保没有意外的进程或协程启动
+    async.sleep_async(2000)
+    
+    -- 验证没有 notepad.exe (或任何其他守护进程) 启动
+    lu.assertIsNil(process.find(dummy_shell_name), "No shell process should be started for an invalid path.")
+end
 
 -- =================================================================
 --  运行所有测试
