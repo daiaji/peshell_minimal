@@ -1,31 +1,46 @@
--- pesh-api/async.lua
--- 最小化实现的异步辅助模块
+-- scripts/pesh-api/async.lua (v4.0 - Coroutine Pool Re-integrated)
+-- 本模块提供核心的 await 函数，并将异步任务的执行委托给协程池。
 
 local M = {}
 local native = pesh_native
 local log = require("pesh-api.log")
 
---[[
-@description 在不阻塞主线程消息循环的情况下暂停执行。
-@param ms number: 暂停的毫秒数。
-]]
-function M.sleep_async(ms)
-    ms = ms or 0
-    log.trace("Async sleep for ", ms, " ms.")
-    -- 在这个最小化方案中，我们直接调用 C++ 提供的、能够处理消息循环的 sleep 函数。
-    native.sleep(ms)
+-- [关键] 引入协程池模块
+local coro_pool = require("pesh-api.coro_pool")
+
+-- 全局的 await 函数 (此部分保持不变)
+function _G.await(future_provider_func, ...)
+    local co = coroutine.running()
+    if not co then
+        error("await() must be called from within a coroutine.", 2)
+    end
+
+    -- 执行 future_provider_func，它会启动一个后台任务
+    -- 它需要将当前协程 co 传递给后台
+    future_provider_func(co, ...)
+    
+    -- 让出执行权，等待 C++ 调度器唤醒
+    -- 当唤醒时，yield 会返回 C++ 传来的多个值
+    local resumed_success, resumed_data_or_error = coroutine.yield()
+    
+    if not resumed_success then
+        -- 如果后台任务失败，我们在这里抛出错误，这样调用方可以用 pcall 捕获
+        error(resumed_data_or_error, 2)
+    end
+    
+    return resumed_data_or_error
 end
 
---[[
-@description (占位符) 等待一个 future 对象完成。
-@param future table: 一个代表异步操作的 future 对象。
-@return any: 异步操作的结果。
---]]
-function M.await(future)
-    -- 在一个完整的协程调度器实现中，这里会 yield 当前协程，
-    -- 直到 future 对象所代表的操作完成。
-    -- 在最小化方案中，我们暂时不需要复杂的实现。
-    log.trace("Awaiting a future object (placeholder).")
+-- [关键] 启动一个异步任务，现在使用协程池来执行
+-- 直接将 M.run 指向 coro_pool.run，实现功能委托
+M.run = coro_pool.run
+log.info("Async module initialized with coroutine pooling.")
+
+
+-- 带消息循环的阻塞式休眠（保留用于简单场景）
+function M.sleep_async(ms)
+    native.sleep(ms)
+    return true
 end
 
 return M

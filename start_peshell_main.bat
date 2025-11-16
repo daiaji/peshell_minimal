@@ -4,23 +4,23 @@ setlocal
 :: ==================================================================
 :: PEShell Main Mode Starter
 :: ------------------------------------------------------------------
-:: ����:
-::   �� "main" (�ػ�) ģʽ���� PEShell����ִ�� scripts\init.lua �ű���
-::   ��ģ���� PECMD.exe MAIN ... �ĺ��Ĺ��ܣ����� PE ������ʼ����
+:: 作用:
+::   以 "main" (守护) 模式启动 PEShell，并执行 scripts\init.lua 脚本。
+::   此模式模拟 PECMD.exe MAIN ... 的核心功能，用于 PE 环境的自动初始化。
 ::
-:: �÷�:
-::   ֱ��˫�����������ļ����ɡ�
+:: 用法:
+::   直接双击运行此文件即可。
 :: ==================================================================
 
-:: ��ȡ�������ļ����ڵ�Ŀ¼�����Ŀ¼Ҳ���� peshell.exe ���ڵ�Ŀ¼
+:: 获取此批处理文件所在的目录，该目录也应该是 peshell.exe 所在的目录
 set "PESHELL_DIR=%~dp0"
 
-:: ���� peshell.exe �� init.lua �ű�������·��
-:: %~dp0 �����һ��β���ķ�б�ܣ���������ֱ��ƴ���ļ���
+:: 构建 peshell.exe 和 init.lua 脚本的完整路径
+:: %~dp0 包含一个结尾的反斜杠，所以可以直接拼接文件名
 set "PESHELL_EXE=%PESHELL_DIR%peshell.exe"
 set "INIT_SCRIPT=%PESHELL_DIR%scripts\init.lua"
 
-:: ��� peshell.exe �Ƿ����
+:: 检查 peshell.exe 是否存在
 if not exist "%PESHELL_EXE%" (
     echo [ERROR] Cannot find peshell.exe at:
     echo %PESHELL_EXE%
@@ -29,7 +29,7 @@ if not exist "%PESHELL_EXE%" (
     exit /b 1
 )
 
-:: ��� init.lua �ű��Ƿ����
+:: 检查 init.lua 脚本是否存在
 if not exist "%INIT_SCRIPT%" (
     echo [ERROR] Cannot find the main script at:
     echo %INIT_SCRIPT%
@@ -37,7 +37,7 @@ if not exist "%INIT_SCRIPT%" (
     exit /b 1
 )
 
-:: ִ������
+:: 执行命令
 echo [INFO] Starting PEShell in main (guardian) mode...
 echo [INFO] Command: "%PESHELL_EXE%" main "%INIT_SCRIPT%"
 echo.

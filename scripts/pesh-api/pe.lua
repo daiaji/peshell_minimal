@@ -1,97 +1,112 @@
--- pesh-api/pe.lua
--- 负责 PE 环境初始化相关的逻辑
+-- scripts/pesh-api/pe.lua (v3.2 - Robust Handle Management)
 
 local M = {}
--- 引入 LuaFileSystem 和 log 模块
-local lfs = require("lfs")
 local log = require("pesh-api.log")
+local ffi = require("pesh-api.ffi")
+-- Penlight 模块由 prelude 全局化
+local path = require("pl.path")
+local dir = require("pl.dir")
 
---[[
-@description 递归创建目录，类似于 `mkdir -p`。
-@param path string: 要创建的目录的完整路径。
-@return boolean, string: 成功返回 true，失败返回 false 和错误信息。
-]]
-local function mkdirs(path)
-    -- lfs.attributes() 可以检查路径是否存在及其类型
-    local attr = lfs.attributes(path)
+-- [修正] 显式加载包含所需API的DLL
+local advpack = ffi.load("advpack") -- 修正：RegInstallW 位于 advpack.dll
+local ole32 = ffi.load("ole32")
 
-    -- 如果路径已存在且是目录，则无需操作
-    if attr and attr.mode == "directory" then
-        return true
+-- [新增] 使用 FFI 安全地获取环境变量，避免 ANSI/Unicode 冲突
+local function getenv_w(name)
+    local name_w = ffi.to_wide(name)
+    -- 先调用一次获取所需缓冲区大小
+    local size = ffi.C.GetEnvironmentVariableW(name_w, nil, 0)
+    if size == 0 then
+        return nil
     end
-
-    -- 如果路径存在但不是目录（例如是个文件），则返回错误
-    if attr then
-        return false, "Path exists but is not a directory: " .. path
+    local buf = ffi.new("wchar_t[?]", size)
+    -- 再次调用以填充缓冲区
+    if ffi.C.GetEnvironmentVariableW(name_w, buf, size) > 0 then
+        return ffi.from_wide(buf)
     end
-
-    -- 找到父目录
-    local parent_path = path:match("(.+)[\\/][^\\/]+")
-
-    -- 如果有父目录，并且父目录不是根目录（如 C:\），则递归创建父目录
-    if parent_path and parent_path ~= "" and not parent_path:match("^[A-Za-z]:\\$") then
-        local success, err = mkdirs(parent_path)
-        if not success then
-            return false, err
-        end
-    end
-
-    -- 创建当前目录
-    return lfs.mkdir(path)
+    return nil
 end
 
+
 --[[
-@description 初始化 PE 的用户环境，创建必要的文件夹。
-             这对应于 PECMD 的 `INIT` 命令的核心功能。
+@description 初始化 PE 的用户环境，创建必要的文件夹，并注册核心组件。
+             这对应于 PECMD 的 `INIT` 命令的完整功能。
 ]]
 function M.initialize()
-    log.info("PE: Initializing user environment folders...")
+    log.info("PE: Starting core environment initialization...")
 
-    local user_profile = os.getenv("USERPROFILE")
+    -- 1. 创建用户目录
+    log.info("PE: --> Step 1: Creating user environment folders...")
+    -- [修正] 使用 FFI 版本的 getenv 来读取由测试设置的 Unicode 环境变量
+    local user_profile = getenv_w("USERPROFILE")
     if not user_profile then
         log.error("USERPROFILE environment variable is not set. Cannot initialize folders.")
-        return
+        return false
     end
-
-    -- 需要创建的标准用户目录列表
     local directories = {
         "Desktop",
         "Favorites",
-        "Documents", -- 'My Documents' in older systems
+        "Documents",
         "Start Menu",
         "Start Menu/Programs",
         "Start Menu/Programs/Startup",
         "SendTo",
         "AppData/Roaming/Microsoft/Internet Explorer/Quick Launch"
     }
-
-    for _, dir in ipairs(directories) do
-        -- 构造完整路径，并将 / 替换为 \
-        local full_path = (user_profile .. "/" .. dir):gsub("/", "\\")
-        log.debug("Ensuring directory exists: ", full_path)
-
-        -- 使用我们新的递归创建函数
-        local success, err = mkdirs(full_path)
+    for _, subdir_rel in ipairs(directories) do
+        local full_path = path.join(user_profile, subdir_rel)
+        local success, err = dir.makepath(full_path)
         if not success then
             log.warn("Could not create directory '", full_path, "': ", tostring(err))
         end
     end
+    log.info("PE: User folders creation complete.")
 
-    -- 提示：一个完整的实现还需要通过 FFI 调用 Windows API (如 RegInstall)
-    -- 来注册核心的 Shell COM 组件，这里予以省略。
-    log.info("PE: User environment folders initialized.")
+    -- 2. 注册核心 Shell 组件
+    --    使用 FFI.C.LoadLibraryW 精确控制，而不是 ffi.load
+    log.info("PE: --> Step 2: Registering core shell components...")
+    local h_shell32 = ffi.C.LoadLibraryW(ffi.to_wide("shell32.dll"))
+    if h_shell32 and h_shell32 ~= nil then
+        local err_code = advpack.RegInstallW(h_shell32, ffi.to_wide("Install"), nil)
+        
+        -- [关键修正] 无论 RegInstallW 是否成功，都必须释放已加载的库句柄
+        ffi.C.FreeLibrary(h_shell32)
+
+        if err_code == 0 then
+            log.info("PE: shell32.dll components registered successfully via RegInstallW.")
+        else
+            -- 在 CI/CD 等非 PE 环境下，由于权限不足，此操作失败是预期的。
+            -- 我们只记录警告，并继续执行。
+            log.warn("PE: RegInstallW on shell32.dll failed with code: ", err_code)
+        end
+    else
+        log.warn("PE: Could not load shell32.dll for component registration.")
+    end
+
+    -- 3. 初始化 COM 库
+    log.info("PE: --> Step 3: Initializing COM library...")
+    -- [修正] 从正确的库命名空间(ole32)调用 CoInitialize
+    local hresult = ole32.CoInitialize(nil)
+    if hresult < 0 then
+        -- 小于 0 表示错误，S_FALSE (1) 表示已经初始化过了，是正常的。
+        log.warn("PE: CoInitialize failed with HRESULT: ", string.format("0x%X", hresult))
+    else
+        log.info("PE: COM library initialized successfully.")
+    end
+
+    log.info("PE: Core environment initialization complete.")
+    return true
 end
 
--- 声明要导出的子命令
+-- 导出为 peshell 命令，方便从命令行直接调用
 M.__commands = {
     init = function()
-        M.initialize()
+        if M.initialize() then
+            return 0
+        else
+            return 1
+        end
     end
-}
-
--- 新增：导出内部函数以供测试
-M._internal = {
-    mkdirs = mkdirs
 }
 
 return M

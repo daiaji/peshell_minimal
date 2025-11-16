@@ -4,12 +4,18 @@
 [submodule "vendor/proc_utils"]
 	path = vendor/proc_utils
 	url = https://github.com/daiaji/proc_utils.git
-[submodule "vendor/lfs"]
-	path = vendor/lfs
-	url = https://github.com/lunarmodules/luafilesystem.git
 [submodule "vendor/spdlog"]
 	path = vendor/spdlog
 	url = https://github.com/gabime/spdlog.git
 [submodule "vendor/luaunit"]
 	path = vendor/luaunit
 	url = https://github.com/bluebird75/luaunit.git
+[submodule "vendor/penlight"]
+	path = vendor/penlight
+	url = https://github.com/lunarmodules/Penlight.git
+[submodule "vendor/ctpl"]
+	path = vendor/ctpl
+	url = https://github.com/vit-vit/CTPL.git
+[submodule "vendor/lfs"]
+	path = vendor/lfs
+	url = https://github.com/lunarmodules/luafilesystem.git

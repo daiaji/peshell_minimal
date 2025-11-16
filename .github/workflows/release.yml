@@ -49,59 +49,40 @@ jobs:
       - name: Setup MSVC environment
         uses: microsoft/setup-msbuild@v1.3
         with:
-          # 修正：使用正确的参数 'msbuild-architecture' 来指定架构
           msbuild-architecture: "x64"
 
       # 步骤3: 定义版本标签变量
       - name: Set Release Tag Variable
         id: vars
         run: |
-          # 如果是推送标签触发的，使用 github.ref_name；如果是手动触发，使用 inputs.tag_name
           $tag = if ("${{ github.event_name }}" -eq "push") { "${{ github.ref_name }}" } else { "${{ inputs.tag_name }}" }
           echo "tag_name=$tag" >> $env:GITHUB_OUTPUT
         shell: pwsh
 
-      # 步骤4: 配置 CMake
+      # 步骤4: 配置 CMake (构建动态库)
       - name: Configure CMake
-        run: cmake -S . -B build -G "Visual Studio 17 2022" -A x64
+        run: cmake -S . -B build -G "Visual Studio 17 2022" -A x64 -DBUILD_SHARED_LIBS=ON
 
       # 步骤5: 编译项目 (Release 模式)
       - name: Build Project
         run: cmake --build build --config Release
 
-      # 步骤6: 准备发布包
-      - name: Prepare Release Package
-        run: |
-          # 创建一个临时目录用于打包
-          mkdir release_package
-          # 拷贝编译好的可执行文件
-          copy "build\Release\peshell.exe" "release_package\"
-          # 递归拷贝整个 scripts 目录
-          xcopy "scripts" "release_package\scripts\" /E /I /Y
-        shell: cmd
-
-      # 步骤7: 创建 Zip 压缩包
+      # 步骤6: 创建 Zip 压缩包 (直接压缩 Release 目录)
       - name: Create Zip Archive
         id: package
         run: |
           $zipFileName = "peshell-${{ steps.vars.outputs.tag_name }}.zip"
-          Compress-Archive -Path "release_package\*" -DestinationPath $zipFileName
+          Compress-Archive -Path "build/Release/*" -DestinationPath $zipFileName
           echo "zip_name=$zipFileName" >> $env:GITHUB_OUTPUT
         shell: pwsh
 
-      # 步骤8: 创建 GitHub Release 并上传压缩包
+      # 步骤7: 创建 GitHub Release 并上传压缩包
       - name: Create Release and Upload Artifact
         uses: softprops/action-gh-release@v1
         with:
-          # 要上传的文件
           files: ${{ steps.package.outputs.zip_name }}
-          # 发布的标签名
           tag_name: ${{ steps.vars.outputs.tag_name }}
-          # 发布的标题
           name: ${{ github.event.inputs.release_name || format('PEShell {0}', steps.vars.outputs.tag_name) }}
-          # 发布说明
           body: ${{ github.event.inputs.body }}
-          # 是否为草稿
           draft: false
-          # 是否为预发布
           prerelease: ${{ github.event.inputs.prerelease }}

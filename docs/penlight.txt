@@ -1,0 +1,646 @@
+======================================================================
+                         Penlight 中文开发者文档
+======================================================================
+
+版本: 1.14.0 (根据 utils.lua _VERSION)
+主页: https://github.com/lunarmodules/Penlight
+作者: Steve Donovan, David Manura 等
+
+关于此文档
+----------------------------------------------------------------------
+本文档基于 Penlight 库的源代码文件生成，旨在为中文开发者提供一份全面、
+详细的使用指南。文档详细解释了 Penlight 的核心模块、数据结构、函数式
+编程工具、文件系统操作、应用支持等功能，并提供了丰富的代码示例。
+
+
+目录
+----------------------------------------------------------------------
+1.  简介与安装
+    1.1. Penlight 是什么
+    1.2. 核心设计：按需加载
+2.  核心工具集 (pl.utils)
+    2.1. 断言与错误处理
+    2.2. 字符串与格式化输出
+    2.3. 表(Table)操作助手
+    2.4. 文件处理
+    2.5. 函数式编程助手 (Functional Helpers)
+    2.6. 弃用警告 (Deprecation)
+3.  数据结构
+    3.1. 列表 (pl.List)
+    3.2. 映射 (pl.Map)
+    3.3. 集合 (pl.Set)
+    3.4. 多重映射 (pl.MultiMap)
+    3.5. 有序映射 (pl.OrderedMap)
+4.  字符串与文本处理
+    4.1. 扩展字符串库 (pl.stringx)
+    4.2. 字符串模板 (pl.stringx.Template)
+    4.3. 文本换行与缩进
+    4.4. URL 编码 (pl.url)
+    4.5. 模板预处理器 (pl.template)
+5.  函数式编程
+    5.1. 序列与迭代器 (pl.seq)
+    5.2. 函数工具 (pl.func) 与占位符表达式
+    5.3. 操作符函数 (pl.operator)
+    5.4. 列表推导式 (pl.comprehension)
+6.  文件、路径与目录
+    6.1. 路径操作 (pl.path)
+    6.2. 目录操作 (pl.dir)
+    6.3. 文件操作封装 (pl.file)
+7.  数据处理
+    7.1. 表格数据 (pl.data)
+    7.2. 配置文件 (pl.config)
+    7.3. 字符串 IO (pl.stringio)
+    7.4. XML 处理 (pl.xml) [已弃用]
+8.  应用开发
+    8.1. 应用支持 (pl.app)
+    8.2. 命令行参数解析 (pl.lapp)
+9.  高级与专用模块
+    9.1. 二维数组 (pl.array2d)
+    9.2. 词法分析器 (pl.lexer)
+    9.3. 简单输入模式 (pl.sip)
+    9.4. 排列组合 (pl.permute)
+    9.5. Lua 平衡匹配 (pl.luabalanced)
+10. 元编程与类
+    10.1. 面向对象编程 (pl.class)
+    10.2. 严格模式 (pl.strict)
+11. 实用工具
+    11.1. 类型检查 (pl.types)
+    11.2. 美化打印 (pl.pretty)
+    11.3. 测试工具 (pl.test)
+12. 兼容性 (pl.compat)
+
+
+1. 简介与安装
+----------------------------------------------------------------------
+
+1.1. Penlight 是什么
+Penlight (pl) 是一个旨在为标准 Lua 带来 Python 标准库核心功能的 Lua
+模块集合。它专注于提供处理常见编程任务（如文件操作、数据结构、函数式
+编程、字符串处理等）所需的工具，从而让 Lua 开发变得更加高效和便捷。
+
+1.2. 核心设计：按需加载
+Penlight 的一个核心特性是按需加载。当你执行 `require 'pl'` 时，它并
+不会立即加载所有子模块。相反，它通过 `pl.import_into` 模块修改了全局
+环境（_G），为其设置了一个元表。
+
+当你第一次访问一个 Penlight 子模块时（例如 `utils.split`），元表的
+`__index` 元方法会被触发。这个元方法会自动 `require('pl.utils')`，
+并将其返回的模块表设置到全局变量 `utils` 中。这样，只有在实际使用
+某个模块时，它才会被加载到内存中，从而减少了启动开销。
+
+   -- pl/init.lua 的核心逻辑
+   require'pl.import_into'(_G)
+
+你可以通过向 `pl.import_into` 传递一个表来将 Penlight 注入到指定的
+命名空间中，而不是全局环境。
+
+   -- 创建一个独立的命名空间
+   local pl_namespace = {}
+   require('pl.import_into')(pl_namespace)
+   
+   -- 现在可以通过 pl_namespace 访问 Penlight
+   local ls = pl_namespace.List{1, 2, 3}
+   pl_namespace.pretty.dump(ls)
+
+
+2. 核心工具集 (pl.utils)
+----------------------------------------------------------------------
+`pl.utils` 是 Penlight 中最基础也最核心的模块，提供了大量通用的辅助函数。
+当你 `require 'pl'` 时，`utils` 是唯一被预先加载的模块。
+
+2.1. 断言与错误处理
+
+- on_error(mode)
+  设置 Penlight 的全局错误处理策略。
+  - 'default': (默认) 返回 `nil, err_msg`。
+  - 'error':   抛出一个 Lua 错误。
+  - 'quit':    打印错误信息到 stderr 并退出程序。
+
+- raise(err)
+  根据 `on_error` 设置的策略来报告错误。必须与 `return` 关键字一起使用。
+  用法:
+     if not ok then
+       return utils.raise("操作失败")
+     end
+
+- assert_arg(n, val, tp, verify, msg, lev)
+  强大的参数断言函数，用于检查参数的类型和有效性。
+  - `n`: 参数索引。
+  - `val`: 参数值。
+  - `tp`: 期望的类型字符串 (如 'string', 'table')。
+  - `verify`: 可选的验证函数，返回布尔值。
+  - `msg`: 可选的自定义错误消息。
+  - `lev`: 可选的错误栈级别。
+  用法:
+     utils.assert_arg(1, "hello", "string")  -- 成功
+     utils.assert_arg(2, 42, "table")         -- 失败并报错
+
+2.2. 字符串与格式化输出
+
+- printf(fmt, ...)
+  使用 `string.format` 格式化字符串并输出到 `stdout`。
+
+- fprintf(f, fmt, ...)
+  使用 `string.format` 格式化字符串并写入到指定的文件句柄 `f`。
+
+- split(s, re, plain, n)
+  根据分隔符 `re` 将字符串 `s` 分割成一个列表。
+  - `re`: 分隔符，可以是 Lua 模式（默认）或普通字符串（当 `plain` 为 true）。
+  - `n`: 可选的最大分割次数。
+  返回: 一个 `pl.List` 对象。
+
+- escape(s)
+  转义 Lua 模式中的所有魔法字符。
+
+2.3. 表(Table)操作助手
+
+- pack(...) / unpack(t, i, j)
+  提供了与 Lua 5.2+ 兼容的 `table.pack` 和 `table.unpack`。特别地，
+  `utils.unpack` 是 nil 安全的，它会尊重表中的 `n` 字段。
+
+- npairs(t, i_start, i_end, step)
+  一个 nil 安全的、带索引范围的迭代器，类似于 `ipairs` 但功能更强。
+
+- kpairs(t)
+  一个迭代器，用于遍历表中所有非整数键的部分。
+
+- import(t, T)
+  将一个模块表 `t` 的所有字段注入到另一个表 `T`（默认为 _G）中。
+
+2.4. 文件处理
+
+- readfile(filename, is_bin)
+  将整个文件的内容读取为一个字符串。
+
+- writefile(filename, str, is_bin)
+  将一个字符串写入文件。
+
+- readlines(filename)
+  将文件内容按行读取到一个列表中。
+
+2.5. 函数式编程助手 (Functional Helpers)
+
+- function_arg(idx, f, msg)
+  处理函数参数。它接受普通函数、可调用对象，以及代表操作符的字符串
+  （如 '>', '+', '=='），并返回一个可调用的函数。
+
+- memoize(func)
+  对一个单参数函数进行记忆化处理，缓存其结果以提高性能。
+
+- string_lambda(lf)
+  将一个字符串形式的 lambda 表达式（如 '|x| x+1' 或 '_ + 1'）转换成
+  一个真正的 Lua 函数。
+
+- bind1(fn, p) / bind2(fn, p)
+  分别将函数的第一个或第二个参数绑定为一个固定值。
+
+2.6. 弃用警告 (Deprecation)
+
+- raise_deprecation(opts)
+  用于在库代码中发出弃用警告。可以通过 `set_deprecation_func` 自定义
+  警告的输出方式。
+
+
+3. 数据结构
+----------------------------------------------------------------------
+Penlight 提供了几个受 Python 启发的高级数据结构，它们都是带有元表
+的普通 Lua 表，提供了丰富的方法。
+
+3.1. 列表 (pl.List)
+一个功能增强的数组，提供了链式调用的方法。
+
+- 创建: `List()` 或 `List{1, 2, 3}`。
+
+- 修改方法 (返回列表自身):
+  - `append(item)`: 在末尾添加元素。
+  - `extend(L)`: 将另一个列表 `L` 的所有元素追加到末尾。
+  - `insert(i, x)`: 在索引 `i` 处插入元素 `x`。
+  - `put(x)`: 在列表开头插入元素 `x`。
+  - `remove(i)`: 移除索引 `i` 处的元素。
+  - `remove_value(x)`: 移除第一个值为 `x` 的元素。
+  - `sort(cmp)`: 原地排序。
+  - `reverse()`: 原地反转。
+
+- 非修改方法:
+  - `pop(i)`: 移除并返回索引 `i` 处的元素（默认为末尾）。
+  - `index(x, idx)`: 返回第一个值为 `x` 的元素的索引。
+  - `contains(x)`: 检查是否包含 `x`。
+  - `slice(first, last)`: 返回一个新的子列表。
+  - `join(delim)`: 将列表元素用 `delim` 连接成字符串。
+  - `map(fun, ...)`: 对每个元素应用函数 `fun`，返回新列表。
+  - `filter(fun, arg)`: 用谓词函数 `fun` 过滤元素，返回新列表。
+  - `reduce(fun)`: 使用二元函数 `fun` 对列表进行规约。
+
+3.2. 映射 (pl.Map)
+一个模仿字典或哈希映射的类。在功能上与普通 Lua 表类似，但提供了更
+结构化的方法和元方法。
+
+- 创建: `Map{one=1, two=2}`。
+
+- 方法:
+  - `update(t)`: 用另一个表 `t` 的键值对来更新映射。
+  - `keys()`: 返回一个包含所有键的 `pl.List`。
+  - `values()`: 返回一个包含所有值的 `pl.List`。
+  - `iter()`: 返回一个键值对迭代器 (同 `pairs`)。
+  - `get(key)`: 获取键对应的值。
+  - `set(key, val)`: 设置键值对。
+  - `len()`: 返回映射的大小（键的数量）。注意这是一个昂贵的操作。
+
+- 元方法:
+  - `__eq`: 深度比较两个映射的内容是否相等。
+  - `__tostring`: 使用 `pl.pretty` 生成可读的字符串表示。
+
+3.3. 集合 (pl.Set)
+用于存储不重复元素的无序集合。
+
+- 创建: `Set{'a', 'b', 'c'}`。
+
+- 操作:
+  - `union(set)` 或 `s1 + s2`: 并集。
+  - `intersection(set)` 或 `s1 * s2`: 交集。
+  - `difference(set)` 或 `s1 - s2`: 差集。
+  - `symmetric_difference(set)` 或 `s1 ^ s2`: 对称差集。
+  - `issubset(set)` 或 `s1 < s2`: 判断是否为子集。
+  - `len()`: 返回集合的大小。
+
+3.4. 多重映射 (pl.MultiMap)
+一个特殊的映射，每个键可以关联多个值。内部实现为一个键对应一个 `pl.List`。
+
+- 创建: `MultiMap()`。
+
+- 方法:
+  - `set(key, val)`: 为键 `key` *添加* 一个新值 `val`。
+  - `update(t)`: 用表 `t` 更新多重映射。
+
+3.5. 有序映射 (pl.OrderedMap)
+一个保持键插入顺序的映射。
+
+- 创建: `OrderedMap()` 或 `OrderedMap{{key1=val1},{key2=val2}}`。
+
+- 特有方法:
+  - `iter()`: 按插入顺序返回键值对的迭代器。
+  - `keys()`: 按插入顺序返回一个包含所有键的 `pl.List`。
+  - `values()`: 按插入顺序返回一个包含所有值的 `pl.List`。
+  - `insert(pos, key, val)`: 在指定位置 `pos` 插入键值对。
+  - `sort(cmp)`: 根据键对映射进行排序。
+
+
+4. 字符串与文本处理
+----------------------------------------------------------------------
+
+4.1. 扩展字符串库 (pl.stringx)
+提供了大量类似 Python 的字符串方法。`pl.text` 模块现已弃用，其功能
+已全部移至 `pl.stringx`。
+
+- 谓词函数:
+  - `isalpha(s)`, `isdigit(s)`, `isalnum(s)`, `isspace(s)`
+  - `islower(s)`, `isupper(s)`
+  - `startswith(s, prefix)`
+  - `endswith(s, suffix)`
+
+- 列表与字符串转换:
+  - `join(s, seq)`: 用字符串 `s` 连接序列 `seq`。
+  - `split(s, re, n)`: 将字符串 `s` 分割成 `pl.List`。
+  - `splitlines(s, keep_ends)`: 按行分割字符串。
+
+- 查找与替换:
+  - `lfind(s, sub, first, last)` / `rfind(s, sub, first, last)`: 从左或右查找子串。
+  - `replace(s, old, new, n)`: 替换子串。
+  - `count(s, sub, allow_overlap)`: 统计子串出现次数。
+
+- 对齐与修剪:
+  - `ljust(s, w, ch)`, `rjust(s, w, ch)`, `center(s, w, ch)`
+  - `lstrip(s, chrs)`, `rstrip(s, chrs)`, `strip(s, chrs)`
+
+4.2. 字符串模板 (pl.stringx.Template)
+提供了一种简单的模板替换机制。
+
+   local T = require 'pl.stringx'.Template
+   local t = T('Hello, $name! Today is $day.')
+   local result = t:substitute{ name = 'World', day = 'Sunday' }
+   -- result == 'Hello, World! Today is Sunday.'
+
+- `Template(tmpl)`: 创建模板对象。
+- `substitute(tbl)`: 替换占位符。如果 `tbl` 中缺少键，会报错。
+- `safe_substitute(tbl)`: 安全替换，如果缺少键，会保留占位符。
+
+4.3. 文本换行与缩进
+
+- `indent(s, n, ch)`: 为多行字符串 `s` 的每一行增加 `n` 个 `ch` 字符的缩进。
+- `dedent(s)`: 移除多行字符串 `s` 的公共前导空白。
+- `wrap(s, width, breaklong)`: 将段落 `s` 格式化为宽度不超过 `width` 的多行，返回一个行列表。
+- `fill(s, width, breaklong)`: 与 `wrap` 类似，但返回一个单一的、包含换行符的字符串。
+
+4.4. URL 编码 (pl.url)
+
+- `quote(s, quote_plus)`: 对 URL 进行编码，将特殊字符替换为 `%xx` 形式。
+- `unquote(s)`: 对 URL 进行解码。
+
+4.5. 模板预处理器 (pl.template)
+一个简单的模板引擎，允许在文本中嵌入 Lua 代码。
+- 以 `#` 开头的行被视为 Lua 代码。
+- `$(expr)` 会被替换为 Lua 表达式 `expr` 的求值结果。
+
+   local template = require 'pl.template'
+   local s = [[
+   # for i = 1, 3 do
+   Item $(i)
+   # end
+   ]]
+   local result = template.substitute(s)
+   -- result 将是 "Item 1\nItem 2\nItem 3\n"
+
+
+5. 函数式编程
+----------------------------------------------------------------------
+
+5.1. 序列与迭代器 (pl.seq)
+`pl.seq` 模块提供了一套用于处理迭代器（序列）的函数。
+
+- `list(t)`: 将一个 Lua 表转换为一个序列。
+- `copy(iter)`: 将序列中的所有元素收集到一个 `pl.List` 中。
+- `map(fn, iter, arg)`: 对序列中的每个元素应用函数 `fn`。
+- `filter(iter, pred, arg)`: 使用谓词 `pred` 过滤序列。
+- `reduce(fn, iter, initval)`: 对序列进行规约。
+- `sum(iter, fn)`: 计算序列的和。
+- `minmax(iter)`: 找到序列的最小值和最大值。
+- `zip(iter1, iter2)`: 将两个序列“拉链”成一个返回成对值的序列。
+- `take(iter, n)`: 从序列中获取前 `n` 个元素。
+- `skip(iter, n)`: 跳过序列的前 `n` 个元素。
+
+5.2. 函数工具 (pl.func) 与占位符表达式
+`pl.func` 模块的核心是占位符表达式（Placeholder Expressions），它提供
+了一种创建匿名函数的简洁语法。
+
+- 占位符: `_1`, `_2`, ... 代表函数的第一个、第二个参数等。`_0` 代表所有参数。
+  
+   local map = require 'pl.tablex'.map
+   local _1 = require 'pl.func'._1
+   local res = map(_1 * 2, {1, 2, 3}) -- 等价于 map(function(x) return x*2 end, ...)
+   -- res == {2, 4, 6}
+
+- `bind(fn, ...)`: 强大的函数绑定工具，可以使用占位符来指定参数的位置。
+
+   local f = function(a, b, c) return a .. b .. c end
+   local _1, _2 = require 'pl.func'._1, require 'pl.func'._2
+   
+   -- 绑定第二个参数为 " B "
+   local f_b = bind(f, _1, " B ", _2)
+   print(f_b("A", "C")) --> "A B C"
+
+- `compose(...)`: 函数组合，创建一个新函数，它按从右到左的顺序依次调用传入的函数。
+
+5.3. 操作符函数 (pl.operator)
+将 Lua 的内置操作符（如 `+`, `-`, `<`, `==`）包装成函数。这在与 `map`、
+`reduce` 等高阶函数一起使用时非常方便。
+
+   local reduce = require 'pl.tablex'.reduce
+   local op = require 'pl.operator'
+   local sum = reduce(op.add, {1, 2, 3, 4}) -- sum == 10
+
+该模块还包含一个 `optable`，将操作符字符串映射到对应的函数。
+
+5.4. 列表推导式 (pl.comprehension)
+实现了类似 Python 的列表推导式语法，但以字符串形式提供。
+
+   local C = require 'pl.comprehension'.new()
+   
+   -- {x^2 for x in 1..4}
+   local squares = C 'x^2 for x=1,4' ()
+   -- squares == {1, 4, 9, 16}
+
+   -- {2*x for x in {1,2,3} if x > 1}
+   local filtered = C '2*x for x if x > 1' {1, 2, 3}
+   -- filtered == {4, 6}
+
+
+6. 文件、路径与目录
+----------------------------------------------------------------------
+
+6.1. 路径操作 (pl.path)
+一个跨平台的路径操作库，模仿 Python 的 `os.path`。
+
+- `sep`: 当前平台的路径分隔符。
+- `isabs(P)`, `isdir(P)`, `isfile(P)`, `exists(P)`: 路径属性判断。
+- `splitpath(P)`: 将路径分割为目录和文件名。
+- `splitext(P)`: 将路径分割为文件名主体和扩展名。
+- `dirname(P)`, `basename(P)`: 分别获取目录名和文件名。
+- `join(p1, p2, ...)`: 安全地连接多个路径部分。
+- `normpath(P)`: 规范化路径，处理 `.` 和 `..`。
+- `abspath(P)`: 获取绝对路径。
+- `getsize(P)`, `getmtime(P)`: 获取文件大小和修改时间。
+
+6.2. 目录操作 (pl.dir)
+提供了更高级的目录操作功能。
+
+- `getfiles(dirname, mask)`: 获取目录下匹配模式的文件列表。
+- `getdirectories(dirname)`: 获取子目录列表。
+- `makepath(p)`: 创建一个目录，包括所有必需的父目录。
+- `rmtree(fullpath)`: 递归删除整个目录树。
+- `walk(root, bottom_up)`: 遍历目录树，返回一个迭代器，每次产生 `(root, dirs, files)`。
+- `copyfile(src, dest, flag)` / `movefile(src, dest)`: 跨平台的文件复制和移动。
+
+6.3. 文件操作封装 (pl.file)
+这是一个便捷的封装模块，将 `pl.utils`, `pl.dir`, `pl.path` 中与单个
+文件操作相关的函数集中在一起。
+
+- `read(f)`, `write(f, s)`, `copy(s, d)`, `move(s, d)`, `delete(f)`
+- `access_time(f)`, `creation_time(f)`, `modified_time(f)`
+
+
+7. 数据处理
+----------------------------------------------------------------------
+
+7.1. 表格数据 (pl.data)
+用于读取和查询简单的列式数据文件。
+
+- `read(file, cnfg)`: 读取一个分隔符文件（如 CSV, TSV）到一个特殊的数据对象。
+  它能自动猜测分隔符，处理表头，并尝试转换数字。
+- `query(data, condn)` / `data:select(condn)`: 对数据对象执行类 SQL 查询。
+  查询字符串的格式为 `"字段1,字段2 where 条件 sort by 字段"`。
+  返回一个迭代器。
+  用法:
+     local d = data.read('mydata.csv')
+     for name, age in d:select('name, age where age > 30 sort by name') do
+         print(name, age)
+     end
+
+7.2. 配置文件 (pl.config)
+读取类似 INI 或 Unix 风格的配置文件。
+
+- `read(file, cnfg)`: 将配置文件解析为一个 Lua 表。支持 `key=value`、
+  分节 `[section]` 以及简单的值列表。
+  - `variabilize`: (默认 true) 将 `read.timeout` 这样的键转换为 `read_timeout`。
+  - `convert_numbers`: (默认 true) 自动将数值字符串转换为 number 类型。
+
+7.3. 字符串 IO (pl.stringio)
+提供了在字符串上进行文件式读写操作的对象。
+
+- `create()`: 创建一个可写的 "string buffer"，具有 `write` 和 `writef` 方法。
+  使用 `value()` 方法获取最终的字符串。
+- `open(s)`: 从一个现有字符串 `s` 创建一个可读对象，具有 `read` 和 `lines` 方法。
+
+7.4. XML 处理 (pl.xml) [已弃用]
+**注意：此模块自 Penlight 1.11.0 版本起已被标记为弃用，并计划在未来
+版本中移除。建议使用更专业的 XML 库。**
+它提供了一个基于 LOM (Lua Object Model) 的 XML 解析和生成工具。
+
+- `parse(text)`: 将 XML 字符串解析为一个 LOM 表。
+- `tostring(doc, ...)`: 将 LOM 表转换回 XML 字符串，支持美化打印。
+- `elem(tag, items)`: 以编程方式创建 XML 元素。
+
+
+8. 应用开发
+----------------------------------------------------------------------
+
+8.1. 应用支持 (pl.app)
+
+- `script_name()`: 返回当前运行脚本的名称。
+- `require_here(base)`: 将当前脚本所在的目录（或指定的 `base` 子目录）
+  添加到 `package.path` 和 `package.cpath` 的开头，方便加载本地模块。
+- `parse_args(args, flags_with_values, flags_valid)`: 一个健壮的命令行
+  参数解析器，支持 GNU 风格的长短选项 (`--verbose`, `-v`)、带值的选项
+  以及组合短选项 (`-abc`)。
+
+8.2. 命令行参数解析 (pl.lapp)
+`lapp` 是一个非常独特且易用的命令行解析器。你只需要用一种易于人类阅读
+的格式定义你的命令行接口，它就能自动解析参数。
+
+   lapp = require 'pl.lapp'
+   local args = lapp [[
+   一个简单的计算器
+     -o,--offset (default 0.0)  要增加的偏移量
+     -s,--scale  (number)       缩放因子
+     <number> (number)         要处理的数字
+   ]]
+   
+   print(args.offset + args.scale * args.number)
+
+- 以 `-` 或 `--` 开头的行是选项。
+- 以 `<...>` 开头的行是位置参数。
+- 括号 `(...)` 内的内容指定类型、默认值或约束。
+
+
+9. 高级与专用模块
+----------------------------------------------------------------------
+
+9.1. 二维数组 (pl.array2d)
+提供了针对二维表（矩阵）的操作函数。
+
+- `size(a)`, `column(a, j)`, `row(a, i)`
+- `map(f, a)`, `map2(f, ad, bd, a, b)`
+- `transpose(t)`, `reshape(t, nrows)`
+- `slice(t, i1, j1, i2, j2)`: 提取子矩阵。支持类似电子表格的范围表示
+  法，如 `'A1:B4'`。
+
+9.2. 词法分析器 (pl.lexer)
+一个通用的词法扫描器，可以将文本分解为一系列词法单元 (token)。
+
+- `scan(s, matches, filter)`: 通用扫描器。
+- `lua(s, filter)`: 预置了针对 Lua 语言的词法规则。
+- `cpp(s, filter)`: 预置了针对 C/C++ 语言的词法规则。
+  
+   for token_type, value in lexer.lua('for i=1,10 do') do
+       print(token_type, value)
+   end
+
+9.3. 简单输入模式 (pl.sip)
+SIP (Simple Input Patterns) 是一种用于匹配和提取文本的微语言。模式以
+`$` 开头，后跟一个单字母类型。
+
+- 类型: `v` (标识符), `i` (整数), `f` (浮点数), `q` (带引号的字符串)。
+- `match(spec, line, res)`: 用 SIP 模式 `spec` 匹配字符串 `line`，
+  结果存入 `res` 表。
+
+   local res = {}
+   sip.match('$v{name} = $q{value}', 'user = "John"', res)
+   -- res == { name = 'user', value = 'John' }
+
+9.4. 排列组合 (pl.permute)
+
+- `order_iter(a)`: 返回一个迭代器，用于遍历列表 `a` 的所有顺序排列。
+- `list_iter(...)`: 返回一个迭代器，用于遍历多个列表的笛卡尔积。
+
+9.5. Lua 平衡匹配 (pl.luabalanced)
+用于从字符串中准确提取匹配的 Lua 代码块，如匹配的括号、字符串或
+完整的表达式。
+
+
+10. 元编程与类
+----------------------------------------------------------------------
+
+10.1. 面向对象编程 (pl.class)
+一个简洁的、用于创建类的框架。
+
+- `MyClass = class(BaseClass)`: 创建一个继承自 `BaseClass` 的新类。
+- `_init`: 构造函数，在创建实例时调用。
+- `super`: 在 `_init` 中，可以通过 `self:super(...)` 调用父类的构造函数。
+- `is_a(klass)`: 实例方法，检查实例是否属于某个类或其子类。
+- `class_of(obj)`: 类方法，检查对象是否是该类的实例。
+
+   local Animal = class()
+   function Animal:_init(name) self.name = name end
+   function Animal:speak() print(self.name .. " makes a noise.") end
+   
+   local Cat = class(Animal)
+   function Cat:speak() print(self.name .. " says Meow.") end
+   
+   local my_cat = Cat("Whiskers")
+   my_cat:speak() --> Whiskers says Meow.
+
+10.2. 严格模式 (pl.strict)
+用于检查未声明的全局变量的使用。当 `require 'pl'` 时，如果定义了
+`PENLIGHT_STRICT` 全局变量，`pl.strict` 会被自动加载，使全局环境变得
+严格。
+
+- `module(name, mod, predeclared)`: 可以将任何一个表设置为严格模式，
+  防止意外地向其添加新字段。
+
+
+11. 实用工具
+----------------------------------------------------------------------
+
+11.1. 类型检查 (pl.types)
+
+- `is_callable(obj)`: 检查一个对象是否是函数或具有 `__call` 元方法。
+- `is_type(obj, tp)`: 检查对象类型，`tp` 可以是字符串或元表。
+- `type(obj)`: 返回更详细的类型字符串，对于 Penlight 对象会返回其类名。
+- `is_empty(o)`: 检查对象是否为空（nil、空字符串或空表）。
+- `is_indexable(val)`, `is_iterable(val)`, `is_writeable(val)`: 检查
+  对象是否支持 `__len`/`__index`, `__pairs`, `__newindex` 等元方法。
+- `to_bool(o)`: 将各种类型的值（如 "true", "yes", 1, 非空表）转换为布尔值。
+
+11.2. 美化打印 (pl.pretty)
+提供了比标准 `print` 更强大的打印功能。
+
+- `write(tbl, space, not_clever)`: 将一个 Lua 表格式化为易于阅读的
+  、多行的字符串表示形式。
+- `dump(t, filename)`: 将 `pretty.write` 的结果输出到文件或 `stdout`。
+- `read(s)`: `pretty.write` 的逆操作，可以安全地从字符串中读取一个表，
+  会阻止函数定义。
+- `debug(...)` 或 `require'pl.pretty'(...)`: 一个便捷的调试函数，
+  可以打印任意数量的参数及其值。
+
+11.3. 测试工具 (pl.test)
+一个简单的测试辅助库。
+
+- `asserteq(x, y, eps)`: 断言两个值相等。它能深度比较表，并能处理
+  浮点数的精度问题。
+- `assertmatch(s1, s2)`: 断言字符串 `s1` 匹配模式 `s2`。
+- `assertraise(fn, e)`: 断言函数 `fn` 会抛出匹配字符串 `e` 的错误。
+- `tuple(...)`: 将多个返回值打包成一个特殊对象，该对象可以进行比较，
+  非常适合测试返回多个值的函数。
+
+
+12. 兼容性 (pl.compat)
+----------------------------------------------------------------------
+`pl.compat` 模块旨在抹平不同 Lua 版本（主要是 5.1, 5.2, 5.3+）之间的
+差异。它会自动为旧版本的 Lua 提供新版本中的函数。
+
+- `table.pack`, `table.unpack`: 为 Lua 5.1 提供。
+- `package.searchpath`: 为 Lua 5.1 提供。
+- `load`: 提供了一个与 Lua 5.2+ 签名兼容的版本。
+- `getfenv`, `setfenv`: 为 Lua 5.2+ 提供了兼容实现。
+- `execute(cmd)`: 提供了一个在所有平台上返回一致结果（`bool, code`）
+  的 `os.execute` 版本。
+- `warn`: 为 Lua 5.4 之前的版本提供了 `warn` 函数。

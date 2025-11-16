@@ -10,11 +10,9 @@ return {
     std = "luajit",
 
     -- 定义额外的全局变量，避免 luacheck 误报为未定义
-    -- `pesh_native` 是 C++ 暴露的原生接口
-    -- `lfs` 是 LuaFileSystem 库
     globals = {
-        "pesh_native",
-        "lfs"
+        "pesh_native", -- C++ 暴露的核心接口
+        "pl"           -- Penlight 库 (由 prelude 加载)
     },
 
     -- 忽略指定的警告代码
@@ -28,7 +26,6 @@ return {
     -- ===================================
 
     -- 当命令行没有指定文件或目录时，默认检查 `scripts/` 目录
-    -- 这解决了在项目根目录直接运行 `luacheck` 时报错的问题
     files = {
         "scripts/"
     }

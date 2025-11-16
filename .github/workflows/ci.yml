@@ -1,72 +1,76 @@
-# 工作流名称
-name: CI Build and Upload Artifact
+# .github/workflows/ci.yml
 
-# 工作流触发条件
+name: CI Build and Test
+
 on:
-  # 1. 自动触发：当推送到 'main' 或 'master' 分支时
   push:
     branches: ["main", "master"]
-
-  # 2. 手动触发：允许在 Actions 页面手动运行此工作流
   workflow_dispatch:
 
-# 定义任务
 jobs:
   build-and-test:
-    # 指定运行环境
     runs-on: windows-latest
 
-    # 任务步骤
     steps:
-      # 步骤1: 检出代码，并递归检出所有子模块
       - name: Checkout repository with submodules
         uses: actions/checkout@v4
         with:
           submodules: "recursive"
 
-      # 步骤2: 设置 MSVC 开发环境 (x64)
       - name: Setup MSVC environment
         uses: microsoft/setup-msbuild@v1.3
         with:
           msbuild-architecture: "x64"
 
-      # 步骤3: 配置 CMake
       - name: Configure CMake
-        run: cmake -S . -B build -G "Visual Studio 17 2022" -A x64
+        run: cmake -S . -B build -G "Visual Studio 17 2022" -A x64 -DBUILD_SHARED_LIBS=ON
 
-      # 步骤4: 编译项目 (Release 模式)
       - name: Build Project
         run: cmake --build build --config Release
 
-      # 步骤5: 检查可执行文件的DLL依赖项
       - name: Check Executable Dependencies
         run: |
-          rem ** 关键修复: 调用 vcvarsall.bat 来设置完整的 VS 工具环境 **
           call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvarsall.bat" x64
           echo "--- Checking dependencies for peshell.exe ---"
           dumpbin /dependents build/Release/peshell.exe
         shell: cmd
 
-      # 步骤6: 运行 Lua API 测试
-      - name: Run Lua API Tests
+      # 第一个测试步骤：运行单元和集成测试
+      - name: Run Lua Unit & Integration Tests
         run: |
-          echo "--- Starting Lua API Test Suite ---"
-          build\Release\peshell.exe run scripts\test_suite.lua
-          echo "--- Lua API Test Suite Finished ---"
+          echo "--- Starting Lua Unit & Integration Test Suite ---"
+          
+          set "BUILD_DIR=%CD%\build\Release"
+          echo "Adding %BUILD_DIR% to PATH"
+          set "PATH=%BUILD_DIR%;%PATH%"
+          
+          cd %BUILD_DIR%
+          
+          REM [修正] 在 cmd shell 中, 使用 REM 作为注释符
+          peshell.exe run scripts/test_suite.lua
+          
+          echo "--- Lua Unit & Integration Test Suite Finished ---"
         shell: cmd
 
-      # 步骤7: 准备发布包
-      - name: Prepare Build Package
+      # 第二个测试步骤：专门测试 await 和协程调度器
+      - name: Run Async/Await Mechanism Tests
         run: |
-          mkdir build_package
-          copy "build\Release\peshell.exe" "build_package\"
-          xcopy "scripts" "build_package\scripts\" /E /I /Y
+          echo "--- Starting Async/Await Mechanism Test Suite ---"
+          
+          set "BUILD_DIR=%CD%\build\Release"
+          set "PATH=%BUILD_DIR%;%PATH%"
+          cd %BUILD_DIR%
+
+          REM [修正] 在 cmd shell 中, 使用 REM 作为注释符
+          REM test_async.lua 内部会通过 PostQuitMessage 结束进程并返回退出码
+          peshell.exe main scripts/test_async.lua run_from_main
+          
+          echo "--- Async/Await Mechanism Test Suite Finished ---"
         shell: cmd
 
-      # 步骤8: 上传构建产物 (Artifact)
       - name: Upload Build Artifact
         uses: actions/upload-artifact@v4
         with:
           name: peshell-build-artifact
-          path: build_package/
+          path: build/Release/
           retention-days: 7

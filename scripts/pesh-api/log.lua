@@ -2,22 +2,16 @@
 -- 提供一个简单、统一的日志接口给所有 Lua 脚本
 
 local M = {}
+-- [优化] 根据 LuaJIT FFI 性能指南，只缓存命名空间本身，
+-- 而不是缓存单个函数。JIT 编译器能更好地优化对命名空间的直接访问。
 local native = pesh_native
-
--- 为了性能，将函数引用保存在局部变量中
-local log_trace = native.log_trace
-local log_debug = native.log_debug
-local log_info = native.log_info
-local log_warn = native.log_warn
-local log_error = native.log_error
-local log_critical = native.log_critical
 
 --[[
 @description 记录一条 trace 级别的日志，用于非常详细的调试。
 @param ...: 任意数量的参数，将被转换成字符串并拼接。
 ]]
 function M.trace(...)
-    log_trace(tostring(table.concat({ ... }, " ")))
+    native.log_trace(tostring(table.concat({ ... }, " ")))
 end
 
 --[[
@@ -25,7 +19,7 @@ end
 @param ...: 任意数量的参数。
 ]]
 function M.debug(...)
-    log_debug(tostring(table.concat({ ... }, " ")))
+    native.log_debug(tostring(table.concat({ ... }, " ")))
 end
 
 --[[
@@ -33,7 +27,7 @@ end
 @param ...: 任意数量的参数。
 ]]
 function M.info(...)
-    log_info(tostring(table.concat({ ... }, " ")))
+    native.log_info(tostring(table.concat({ ... }, " ")))
 end
 
 --[[
@@ -41,7 +35,7 @@ end
 @param ...: 任意数量的参数。
 ]]
 function M.warn(...)
-    log_warn(tostring(table.concat({ ... }, " ")))
+    native.log_warn(tostring(table.concat({ ... }, " ")))
 end
 
 --[[
@@ -49,7 +43,7 @@ end
 @param ...: 任意数量的参数。
 ]]
 function M.error(...)
-    log_error(tostring(table.concat({ ... }, " ")))
+    native.log_error(tostring(table.concat({ ... }, " ")))
 end
 
 --[[
@@ -57,7 +51,7 @@ end
 @param ...: 任意数量的参数。
 ]]
 function M.critical(...)
-    log_critical(tostring(table.concat({ ... }, " ")))
+    native.log_critical(tostring(table.concat({ ... }, " ")))
 end
 
 return M
