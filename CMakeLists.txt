@@ -1,113 +1,119 @@
-# 设置所需的最低 CMake 版本
+# CMakeLists.txt
+
 cmake_minimum_required(VERSION 3.15)
-
-# 定义项目名称和所用语言 (C++ 和 C)
 project(peshell CXX C)
-
-# 设置 C++ 标准为 C++17
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-# 全局设置 MSVC 动态运行时库 (/MD) - 仅限 Release
-if(MSVC)
-  set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreadedDLL" CACHE STRING "MSVC Runtime Library" FORCE)
-endif()
-
-# 全局设置构建共享库 (DLL)
 set(BUILD_SHARED_LIBS ON CACHE BOOL "Build shared libraries" FORCE)
 
-# 添加 vendor 子目录
+# 为不同类型的产物设置独立的、结构化的输出目录
+set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin) # .exe 和运行时 .dll
+set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib) # .dll 库
+set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib) # .lib 文件
+
 set(VENDOR_DIR ${CMAKE_CURRENT_SOURCE_DIR}/vendor)
 
-# --- 0. spdlog (作为子项目，编译为 DLL) ---
+# --- C++ 依赖 ---
+# 将 spdlog 设置为非头文件库，以便我们可以统一处理 DLL
+set(SPDLOG_BUILD_SHARED ON CACHE BOOL "" FORCE) # 强制构建动态库
 add_subdirectory(${VENDOR_DIR}/spdlog)
 
-# --- 0.5. CTPL (线程池, header-only) ---
 add_library(ctpl INTERFACE)
 target_include_directories(ctpl INTERFACE ${VENDOR_DIR}/ctpl)
-
-# --- 1. LuaJIT (外部构建, 生成 DLL) ---
-set(LUAJIT_SOURCE_DIR ${VENDOR_DIR}/luajit2/src)
-set(LUAJIT_INSTALL_DIR ${CMAKE_BINARY_DIR}/luajit-install)
-set(LUAJIT_INCLUDE_DIR ${LUAJIT_INSTALL_DIR}/include)
-set(LUAJIT_LIBRARY ${LUAJIT_INSTALL_DIR}/lib/lua51.lib)
-set(LUAJIT_DLL ${LUAJIT_INSTALL_DIR}/bin/lua51.dll)
-set(LUAJIT_REQUIRED_HEADERS
-    "${LUAJIT_SOURCE_DIR}/lua.h" "${LUAJIT_SOURCE_DIR}/lualib.h" "${LUAJIT_SOURCE_DIR}/lauxlib.h"
-    "${LUAJIT_SOURCE_DIR}/luaconf.h" "${LUAJIT_SOURCE_DIR}/lua.hpp" "${LUAJIT_SOURCE_DIR}/luajit.h"
-)
-add_custom_command(
-    OUTPUT ${LUAJIT_LIBRARY} ${LUAJIT_DLL}
-    WORKING_DIRECTORY ${LUAJIT_SOURCE_DIR}
-    COMMAND cmd.exe /c "msvcbuild.bat"
-    COMMAND ${CMAKE_COMMAND} -E make_directory ${LUAJIT_INSTALL_DIR}/lib
-    COMMAND ${CMAKE_COMMAND} -E make_directory ${LUAJIT_INSTALL_DIR}/include
-    COMMAND ${CMAKE_COMMAND} -E make_directory ${LUAJIT_INSTALL_DIR}/bin
-    COMMAND ${CMAKE_COMMAND} -E copy ${LUAJIT_SOURCE_DIR}/lua51.lib ${LUAJIT_INSTALL_DIR}/lib/
-    COMMAND ${CMAKE_COMMAND} -E copy ${LUAJIT_SOURCE_DIR}/lua51.dll ${LUAJIT_INSTALL_DIR}/bin/
-    COMMAND ${CMAKE_COMMAND} -E copy ${LUAJIT_REQUIRED_HEADERS} ${LUAJIT_INCLUDE_DIR}/
-    DEPENDS ${VENDOR_DIR}/luajit2/src/msvcbuild.bat
-    COMMENT "Building and packaging LuaJIT DLL and artifacts..."
-    VERBATIM
-)
-add_custom_target(luajit_build ALL DEPENDS ${LUAJIT_LIBRARY} ${LUAJIT_DLL})
-add_library(luajit INTERFACE)
-target_include_directories(luajit INTERFACE ${LUAJIT_INCLUDE_DIR})
-target_link_libraries(luajit INTERFACE ${LUAJIT_LIBRARY})
-add_dependencies(luajit luajit_build)
-
-# --- 2. proc_utils (作为子项目，编译为 DLL) ---
 add_subdirectory(${VENDOR_DIR}/proc_utils)
 
-# --- 3. luafilesystem (lfs) (手动从源文件构建为 DLL) ---
-add_library(lfs SHARED
-    ${VENDOR_DIR}/lfs/src/lfs.c
-)
-target_link_libraries(lfs PRIVATE luajit)
-target_include_directories(lfs PUBLIC
-    ${LUAJIT_INCLUDE_DIR}
-)
-target_compile_definitions(lfs PRIVATE LUA_BUILD_AS_DLL)
+# --- LuaJIT 构建与安装逻辑 ---
+set(LUAJIT_SOURCE_DIR ${VENDOR_DIR}/luajit2/src)
+set(LUA_INSTALL_DIR ${CMAKE_SOURCE_DIR}/.lua) 
+set(LUAJIT_LIBRARY ${LUA_INSTALL_DIR}/lib/lua51.lib)
+set(LUAJIT_DLL ${LUA_INSTALL_DIR}/bin/lua51.dll)
 
-# 创建主可执行文件目标
+add_custom_target(luajit_compile
+    COMMAND cmd.exe /c "msvcbuild.bat"
+    WORKING_DIRECTORY ${LUAJIT_SOURCE_DIR}
+    COMMENT "Building LuaJIT with MSVC..."
+)
+
+add_custom_target(install_luajit
+    DEPENDS luajit_compile
+    COMMAND ${CMAKE_COMMAND} -E make_directory ${LUA_INSTALL_DIR}/include
+    COMMAND ${CMAKE_COMMAND} -E make_directory ${LUA_INSTALL_DIR}/bin
+    COMMAND ${CMAKE_COMMAND} -E make_directory ${LUA_INSTALL_DIR}/lib
+    COMMAND ${CMAKE_COMMAND} -E copy ${LUAJIT_SOURCE_DIR}/lua.h ${LUA_INSTALL_DIR}/include
+    COMMAND ${CMAKE_COMMAND} -E copy ${LUAJIT_SOURCE_DIR}/lualib.h ${LUA_INSTALL_DIR}/include
+    COMMAND ${CMAKE_COMMAND} -E copy ${LUAJIT_SOURCE_DIR}/lauxlib.h ${LUA_INSTALL_DIR}/include
+    COMMAND ${CMAKE_COMMAND} -E copy ${LUAJIT_SOURCE_DIR}/luaconf.h ${LUA_INSTALL_DIR}/include
+    COMMAND ${CMAKE_COMMAND} -E copy ${LUAJIT_SOURCE_DIR}/lua.hpp ${LUA_INSTALL_DIR}/include
+    COMMAND ${CMAKE_COMMAND} -E copy ${LUAJIT_SOURCE_DIR}/luajit.h ${LUA_INSTALL_DIR}/include
+    COMMAND ${CMAKE_COMMAND} -E copy ${LUAJIT_SOURCE_DIR}/lua51.dll ${LUA_INSTALL_DIR}/bin
+    COMMAND ${CMAKE_COMMAND} -E copy ${LUAJIT_SOURCE_DIR}/lua51.lib ${LUA_INSTALL_DIR}/lib
+    COMMAND ${CMAKE_COMMAND} -E copy ${LUAJIT_SOURCE_DIR}/luajit.exe ${LUA_INSTALL_DIR}/bin
+    COMMAND ${CMAKE_COMMAND} -E copy ${LUAJIT_SOURCE_DIR}/luajit.exe ${LUA_INSTALL_DIR}/bin/lua.exe
+    COMMENT "Installing MSVC-built LuaJIT to ${LUA_INSTALL_DIR}"
+)
+
+add_library(luajit INTERFACE)
+# 确保 install_luajit 在 luajit 目标被使用前完成
+add_dependencies(luajit install_luajit)
+target_include_directories(luajit INTERFACE ${LUA_INSTALL_DIR}/include)
+target_link_libraries(luajit INTERFACE ${LUAJIT_LIBRARY})
+
+# --- 主目标定义 ---
 add_executable(peshell src/main.cpp)
 
-# 链接所有依赖项到主目标
-target_link_libraries(peshell PRIVATE
-    proc_utils
-    lfs
-    luajit
-    user32.lib
-    psapi.lib
-    shell32.lib
-    ole32.lib
-    advapi32.lib
-    spdlog::spdlog # <--- 这是 spdlog 的链接目标
+if(MSVC)
+  set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreadedDLL" CACHE STRING "MSVC Runtime Library" FORCE)
+  if(CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
+    target_compile_options(peshell PRIVATE -Wall -Wextra -Wno-unused-parameter)
+    message(STATUS "Compiler: Clang (clang-cl mode)")
+  else()
+    target_compile_options(peshell PRIVATE /W4)
+    message(STATUS "Compiler: MSVC")
+  endif()
+endif()
+
+target_link_libraries(peshell PRIVATE 
+    proc_utils 
+    luajit 
+    spdlog::spdlog 
+    ctpl 
+    user32.lib 
+    psapi.lib 
+    shell32.lib 
+    ole32.lib 
+    advapi32.lib 
     winmm.lib
-    ctpl
 )
 
-# 构建后事件
-set(OUTPUT_DIR "$<TARGET_FILE_DIR:peshell>")
-
+# [[ 核心修正 ]]
+# 添加一个构建后事件，将 lua51.dll 复制到 peshell.exe 所在的目录 (build/bin)
+# 这样在 CI 流程中，我们可以直接从 build/bin 复制所有运行时需要的文件。
 add_custom_command(TARGET peshell POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E copy_directory "${CMAKE_CURRENT_SOURCE_DIR}/scripts" "${OUTPUT_DIR}/scripts"
-    COMMENT "Copying scripts to output directory..."
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+    ${LUAJIT_DLL}
+    $<TARGET_FILE_DIR:peshell>
+    COMMENT "Copying LuaJIT DLL to output directory"
 )
 
-add_custom_command(TARGET peshell POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E make_directory "${OUTPUT_DIR}/lib"
-    COMMAND ${CMAKE_COMMAND} -E copy_directory "${CMAKE_CURRENT_SOURCE_DIR}/vendor/penlight/lua/pl" "${OUTPUT_DIR}/lib/pl"
-    COMMAND ${CMAKE_COMMAND} -E copy "${CMAKE_CURRENT_SOURCE_DIR}/vendor/luaunit/luaunit.lua" "${OUTPUT_DIR}/lib/luaunit.lua"
-    COMMENT "Copying Penlight and LuaUnit to lib directory..."
+# ==================================================================
+#  安装规则 (Installation Rules) - 简化版
+# ==================================================================
+# 这部分现在主要是为了本地开发方便，CI流程不再直接依赖它。
+# 它会创建一个与我们手动组装的 package 目录类似的结构。
+
+# 安装可执行文件和所有运行时动态库到 <prefix>/bin
+install(TARGETS peshell proc_utils spdlog
+        RUNTIME DESTINATION bin
+        LIBRARY DESTINATION bin  # 将 .dll 也安装到 bin
+        ARCHIVE DESTINATION lib
 )
 
-# ==================== 修正点 ====================
-add_custom_command(TARGET peshell POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E copy "$<TARGET_FILE:proc_utils>" "${OUTPUT_DIR}"
-    COMMAND ${CMAKE_COMMAND} -E copy "$<TARGET_FILE:lfs>" "${OUTPUT_DIR}"
-    COMMAND ${CMAKE_COMMAND} -E copy "$<TARGET_FILE:spdlog>" "${OUTPUT_DIR}" # <-- 新增这一行
-    COMMAND ${CMAKE_COMMAND} -E copy "${LUAJIT_DLL}" "${OUTPUT_DIR}"
-    COMMENT "Copying required DLLs to output directory..."
-)
-# ===============================================
+# 安装 LuaJIT DLL
+install(FILES ${LUAJIT_DLL} DESTINATION bin)
+
+# 安装所有 Lua 脚本
+install(DIRECTORY scripts/ DESTINATION share/lua/5.1)
+
+# 安装启动脚本
+install(FILES start_peshell_main.bat DESTINATION .)

@@ -2,34 +2,33 @@
 setlocal
 
 :: ==================================================================
-:: PEShell Main Mode Starter
+:: PEShell Main Mode Starter (v2.0 - Self-Contained Package)
 :: ------------------------------------------------------------------
-:: ä½œç”¨:
-::   ä»¥ "main" (å®ˆæŠ¤) æ¨¡å¼å¯åŠ¨ PEShellï¼Œå¹¶æ‰§è¡Œ scripts\init.lua è„šæœ¬ã€‚
-::   æ­¤æ¨¡å¼æ¨¡æ‹Ÿ PECMD.exe MAIN ... çš„æ ¸å¿ƒåŠŸèƒ½ï¼Œç”¨äº PE ç¯å¢ƒçš„è‡ªåŠ¨åˆå§‹åŒ–ã€‚
+:: ×÷ÓÃ:
+::   ÒÔ "main" (ÊØ»¤) Ä£Ê½Æô¶¯ PEShell£¬²¢Ö´ĞĞ share/lua/5.1/init.lua ½Å±¾¡£
+::   ´ËÄ£Ê½Ä£Äâ PECMD.exe MAIN ... µÄºËĞÄ¹¦ÄÜ£¬ÓÃÓÚ PE »·¾³µÄ×Ô¶¯³õÊ¼»¯¡£
 ::
-:: ç”¨æ³•:
-::   ç›´æ¥åŒå‡»è¿è¡Œæ­¤æ–‡ä»¶å³å¯ã€‚
+:: ÓÃ·¨:
+::   ½«Õû¸ö°ü¸´ÖÆµ½Ä¿±êÎ»ÖÃ£¬È»ºóË«»÷ÔËĞĞ´ËÎÄ¼ş¡£
 :: ==================================================================
 
-:: è·å–æ­¤æ‰¹å¤„ç†æ–‡ä»¶æ‰€åœ¨çš„ç›®å½•ï¼Œè¯¥ç›®å½•ä¹Ÿåº”è¯¥æ˜¯ peshell.exe æ‰€åœ¨çš„ç›®å½•
-set "PESHELL_DIR=%~dp0"
+:: »ñÈ¡´ËÅú´¦ÀíÎÄ¼şËùÔÚµÄÄ¿Â¼£¬¼´°üµÄ¸ùÄ¿Â¼
+set "PACKAGE_ROOT=%~dp0"
 
-:: æ„å»º peshell.exe å’Œ init.lua è„šæœ¬çš„å®Œæ•´è·¯å¾„
-:: %~dp0 åŒ…å«ä¸€ä¸ªç»“å°¾çš„åæ–œæ ï¼Œæ‰€ä»¥å¯ä»¥ç›´æ¥æ‹¼æ¥æ–‡ä»¶å
-set "PESHELL_EXE=%PESHELL_DIR%peshell.exe"
-set "INIT_SCRIPT=%PESHELL_DIR%scripts\init.lua"
+:: ¹¹½¨ peshell.exe ºÍ init.lua ½Å±¾µÄÍêÕûÂ·¾¶
+set "PESHELL_EXE=%PACKAGE_ROOT%bin\peshell.exe"
+set "INIT_SCRIPT=%PACKAGE_ROOT%share\lua\5.1\init.lua"
 
-:: æ£€æŸ¥ peshell.exe æ˜¯å¦å­˜åœ¨
+:: ¼ì²é peshell.exe ÊÇ·ñ´æÔÚ
 if not exist "%PESHELL_EXE%" (
     echo [ERROR] Cannot find peshell.exe at:
     echo %PESHELL_EXE%
-    echo Make sure this batch file is in the same directory as peshell.exe.
+    echo Make sure this batch file is in the root of the extracted package.
     pause
     exit /b 1
 )
 
-:: æ£€æŸ¥ init.lua è„šæœ¬æ˜¯å¦å­˜åœ¨
+:: ¼ì²é init.lua ½Å±¾ÊÇ·ñ´æÔÚ
 if not exist "%INIT_SCRIPT%" (
     echo [ERROR] Cannot find the main script at:
     echo %INIT_SCRIPT%
@@ -37,7 +36,7 @@ if not exist "%INIT_SCRIPT%" (
     exit /b 1
 )
 
-:: æ‰§è¡Œå‘½ä»¤
+:: Ö´ĞĞÃüÁî
 echo [INFO] Starting PEShell in main (guardian) mode...
 echo [INFO] Command: "%PESHELL_EXE%" main "%INIT_SCRIPT%"
 echo.

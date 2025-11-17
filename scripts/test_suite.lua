@@ -129,7 +129,7 @@ function TestShellGuardian:testGuardianLifecycle()
     lu.assertNotIsNil(respawn_event)
     
     -- 2. 构造命令，启动一个独立的守护进程
-    local guardian_cmd = string.format('"%s" main scripts/test_guardian_init.lua "%s" %s %s', 
+    local guardian_cmd = string.format('"%s" main share/lua/5.1/test_guardian_init.lua "%s" %s %s', 
         peshell_exe_path, target_process_cmd, ready_event_name, respawn_event_name)
     local shutdown_cmd = string.format('"%s" shutdown', peshell_exe_path)
 

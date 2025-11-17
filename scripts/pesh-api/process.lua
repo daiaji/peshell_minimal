@@ -1,4 +1,4 @@
--- scripts/pesh-api/process.lua (v6.4 - Added True Async Wait)
+-- scripts/pesh-api/process.lua (v6.5 - API Cleanup)
 local M = {}
 local ffi = require("pesh-api.ffi")
 local log = require("pesh-api.log")
@@ -22,13 +22,9 @@ function process_metatable.__index:kill_tree()
     return proc_utils.ProcUtils_ProcessCloseTree(ffi.to_wide(tostring(self.pid)))
 end
 
-function process_metatable.__index:wait_for_exit_async(co)
-    if not self.handle or self.handle.h == nil then
-        error("Cannot wait for process " .. tostring(self.pid) .. ": handle is nil", 2)
-    end
-    local handle_obj_shell = ffi.new("SafeHandle_t", { h = self.handle.h })
-    native.wait_for_multiple_objects(co, { handle_obj_shell })
-end
+-- [[ 核心修正 ]]
+-- 移除了容易混淆的 :wait_for_exit_async() 方法。
+-- 异步等待应始终通过 `await(process.wait_for_exit, proc)` 模式完成。
 
 function process_metatable.__index:wait_for_exit_blocking(timeout_ms)
     if not self.handle or self.handle.h == nil then
@@ -56,8 +52,8 @@ end
 -- ########## Module-level Functions ##########
 
 ---
--- [新增] 以异步方式等待一个进程结束。
--- 专用于与全局 await 函数配合使用。
+-- 以异步方式等待一个进程结束。
+-- 这是专用于与全局 await 函数配合使用的 "future provider"。
 -- @param co coroutine: 由 await 传入的当前协程。
 -- @param process_obj table: 由本模块创建的进程对象。
 function M.wait_for_exit(co, process_obj)

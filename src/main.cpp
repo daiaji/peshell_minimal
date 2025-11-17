@@ -28,14 +28,10 @@
 #include <thread>
 #include <vector>
 
-// [关键修正]
-// LUA_TCDATA 是 LuaJIT FFI 特有的类型，但在 C API 头文件中可能不总是可见。
-// 为了确保编译通过，我们在这里安全地定义它。它的内部值是 10。
 #ifndef LUA_TCDATA
 #define LUA_TCDATA 10
 #endif
 
-// 检查是否为支持 resetthread 的 OpenResty LuaJIT
 #if defined(LUA_JITLIBNAME) && defined(OPENRESTY_LUAJIT)
 #define HAVE_LUA_RESETTHREAD 1
 #endif
@@ -68,8 +64,8 @@ ctpl::thread_pool              g_thread_pool(std::thread::hardware_concurrency()
 static volatile bool           g_handle_list_dirty = true;
 
 // 函数前置声明
-void         InitializeLogger(const std::string& exe_dir);
-lua_State*   InitializeLuaState(const std::string& exe_dir);
+void         InitializeLogger(const std::string& log_dir);
+lua_State*   InitializeLuaState(const std::string& package_root_dir);
 std::wstring Utf8ToWide(const std::string& str);
 
 namespace LuaBindings
@@ -78,7 +74,6 @@ namespace LuaBindings
     //  CORE C++ BINDINGS
     // =================================================================================
 
-    // FFI struct SafeHandle_t { void* h; };
     struct SafeHandle
     {
         HANDLE h;
@@ -154,7 +149,6 @@ namespace LuaBindings
                 SetEvent(g_hTaskCompletedEvent);
             });
         }
-        // [新增] 添加对 process_wait_worker 的处理
         else if (strcmp(worker_name, "process_wait_worker") == 0)
         {
             if (lua_type(L, 2) != LUA_TCDATA) return luaL_error(L, "Arg 2 must be a process handle (cdata)");
@@ -163,7 +157,6 @@ namespace LuaBindings
 
             if (!handle_obj || !handle_obj->h)
             {
-                // 句柄无效，立即唤醒协程并报告错误
                 std::lock_guard<std::mutex> lock(g_completed_tasks_mutex);
                 g_completed_tasks.push({co_to_wake, false, "", "Invalid or closed process handle provided."});
                 SetEvent(g_hTaskCompletedEvent);
@@ -193,7 +186,6 @@ namespace LuaBindings
         return 0;
     }
 
-    // [异步] 等待多个句柄 (用于 main 模式)
     static int pesh_wait_for_multiple_objects_async(lua_State* L)
     {
         lua_State* co = lua_tothread(L, 1);
@@ -203,7 +195,7 @@ namespace LuaBindings
         WaitOperation op;
         op.co = co;
 
-        lua_pushnil(L); // first key
+        lua_pushnil(L);
         while (lua_next(L, 2) != 0)
         {
             if (lua_type(L, -1) == LUA_TCDATA)
@@ -214,12 +206,12 @@ namespace LuaBindings
                     op.handles.push_back(handle_obj->h);
                 }
             }
-            lua_pop(L, 1); // remove value, keep key for next iteration
+            lua_pop(L, 1);
         }
 
         if (op.handles.empty())
         {
-            lua_pushboolean(co, false); // success=false
+            lua_pushboolean(co, false);
             lua_pushstring(co, "No valid handles provided to wait on.");
             int status = lua_resume(co, 2);
             if (status != LUA_OK && status != LUA_YIELD)
@@ -242,7 +234,6 @@ namespace LuaBindings
         return 0;
     }
 
-    // [新增] 阻塞式等待多个句柄，用于'run'模式下的测试脚本
     static int pesh_wait_for_multiple_objects_blocking(lua_State* L)
     {
         if (!lua_istable(L, 1)) return luaL_error(L, "Arg 1 must be a table of FFI SafeHandles");
@@ -250,7 +241,7 @@ namespace LuaBindings
         DWORD timeout_dw = (timeout_ms < 0) ? INFINITE : (DWORD)timeout_ms;
 
         std::vector<HANDLE> handles;
-        lua_pushnil(L); // first key
+        lua_pushnil(L);
         while (lua_next(L, 1) != 0)
         {
             if (lua_type(L, -1) == LUA_TCDATA)
@@ -261,7 +252,7 @@ namespace LuaBindings
                     handles.push_back(handle_obj->h);
                 }
             }
-            lua_pop(L, 1); // remove value, keep key for next iteration
+            lua_pop(L, 1);
         }
 
         if (handles.empty())
@@ -323,7 +314,7 @@ namespace LuaBindings
 
 } // namespace LuaBindings
 
-lua_State* InitializeLuaState(const std::string& exe_dir)
+lua_State* InitializeLuaState(const std::string& package_root_dir)
 {
     lua_State* L = luaL_newstate();
     if (!L)
@@ -350,7 +341,11 @@ lua_State* InitializeLuaState(const std::string& exe_dir)
     luaL_setfuncs(L, pesh_native_lib, 0);
     lua_setglobal(L, "pesh_native");
 
-    lua_pushstring(L, exe_dir.c_str());
+    // [[ 核心修正 ]]
+    // 将 EXE 所在的目录（即 bin 目录）传递给 Lua，而不是整个包的根目录。
+    // prelude.lua 将基于此进行相对路径计算。
+    std::filesystem::path exe_dir = std::filesystem::path(package_root_dir) / "bin";
+    lua_pushstring(L, exe_dir.string().c_str());
     lua_setglobal(L, "PESHELL_EXE_DIR");
 
     return L;
@@ -363,13 +358,17 @@ int main(int argc, char* argv[])
     char exe_path_buf[MAX_PATH];
     GetModuleFileNameA(NULL, exe_path_buf, MAX_PATH);
     std::filesystem::path exe_fs_path(exe_path_buf);
-    std::string           exe_dir = exe_fs_path.parent_path().string();
+    std::filesystem::path bin_dir = exe_fs_path.parent_path();
+    // [[ 核心修正 ]]
+    // 包的根目录现在是 bin 目录的父目录。
+    std::filesystem::path package_root = bin_dir.parent_path();
+    std::string           package_root_str = package_root.string();
 
-    InitializeLogger(exe_dir);
-    spdlog::info("PEShell v5.1 (DLL Model, corrected) starting...");
-    spdlog::info("Executable directory: {}", exe_dir);
+    InitializeLogger(package_root_str);
+    spdlog::info("PEShell v5.5 (Self-Contained Package Model) starting...");
+    spdlog::info("Package Root: {}", package_root_str);
 
-    lua_State* L = InitializeLuaState(exe_dir);
+    lua_State* L = InitializeLuaState(package_root_str);
     if (!L) return 1;
 
     g_hTaskCompletedEvent = CreateEvent(NULL, FALSE, FALSE, NULL);
@@ -380,11 +379,15 @@ int main(int argc, char* argv[])
         return 1;
     }
 
-    std::string prelude_path = (std::filesystem::path(exe_dir) / "scripts" / "prelude.lua").string();
+    // [[ 核心修正 ]]
+    // 直接构建出自包含结构下的 prelude.lua 路径，不再需要任何回退逻辑。
+    std::string prelude_path = (package_root / "share" / "lua" / "5.1" / "prelude.lua").string();
+    
+    spdlog::info("Attempting to load prelude from: {}", prelude_path);
     if (luaL_dofile(L, prelude_path.c_str()) != LUA_OK)
     {
         const char* error_msg = lua_tostring(L, -1);
-        spdlog::critical("Failed to load prelude script: {}", error_msg);
+        spdlog::critical("Failed to load prelude script '{}': {}", prelude_path, error_msg);
         MessageBoxA(NULL, error_msg, "PEShell Critical Error", MB_ICONERROR | MB_OK);
         lua_close(L);
         return 1;
@@ -414,7 +417,7 @@ int main(int argc, char* argv[])
     {
         spdlog::info("Entering persistent message and task loop.");
         MSG  msg;
-        bool is_running = true; // [修改] 使用布尔标志替代 goto
+        bool is_running = true;
         while (is_running)
         {
             if (g_handle_list_dirty)
@@ -431,7 +434,7 @@ int main(int argc, char* argv[])
             }
 
             DWORD wait_result = MsgWaitForMultipleObjects(
-                (DWORD)g_wait_handles_cache.size(), g_wait_handles_cache.data(), FALSE, INFINITE, QS_ALLINPUT);
+                static_cast<DWORD>(g_wait_handles_cache.size()), g_wait_handles_cache.data(), FALSE, INFINITE, QS_ALLINPUT);
 
             if (wait_result >= WAIT_OBJECT_0 && wait_result < (WAIT_OBJECT_0 + g_wait_handles_cache.size()))
             {
@@ -454,7 +457,7 @@ int main(int argc, char* argv[])
                             continue;
                         }
 
-                        int resume_status = 0; // [修改]
+                        int resume_status = 0;
                         if (result.success)
                         {
                             lua_pushboolean(result.co, true);
@@ -468,7 +471,6 @@ int main(int argc, char* argv[])
                             resume_status = lua_resume(result.co, 2);
                         }
 
-                        // [修改] 统一的返回值检查
                         if (resume_status != LUA_YIELD && resume_status != LUA_OK)
                         {
                             spdlog::error("Error resuming coroutine after async task: {}",
@@ -504,13 +506,13 @@ int main(int argc, char* argv[])
                         }
                         spdlog::trace("SCHEDULER: Resuming coroutine {:p} due to handle signal.",
                                       (void*)op_to_resume.co);
-                        lua_pushboolean(op_to_resume.co, true); // success
+                        lua_pushboolean(op_to_resume.co, true);
                         int signaled_idx = 0;
                         for (size_t i = 0; i < op_to_resume.handles.size(); ++i)
                         {
                             if (op_to_resume.handles[i] == signaled_handle)
                             {
-                                signaled_idx = i + 1; // Lua is 1-based
+                                signaled_idx = i + 1;
                                 break;
                             }
                         }
@@ -530,8 +532,8 @@ int main(int argc, char* argv[])
                 {
                     if (msg.message == WM_QUIT)
                     {
-                        is_running = false; // [修改] 设置标志
-                        break;              // 跳出内层 PeekMessage 循环
+                        is_running = false;
+                        break;
                     }
                     TranslateMessage(&msg);
                     DispatchMessage(&msg);
@@ -556,7 +558,7 @@ int main(int argc, char* argv[])
     return return_code;
 }
 
-void InitializeLogger(const std::string& exe_dir)
+void InitializeLogger(const std::string& package_root_dir)
 {
     try
     {
@@ -564,8 +566,8 @@ void InitializeLogger(const std::string& exe_dir)
         auto                          console_sink = std::make_shared<spdlog::sinks::stdout_color_sink_mt>();
         console_sink->set_level(spdlog::level::trace);
         sinks.push_back(console_sink);
-
-        std::filesystem::path log_path = std::filesystem::path(exe_dir) / "logs";
+        
+        std::filesystem::path log_path = std::filesystem::path(package_root_dir) / "logs";
         std::filesystem::create_directory(log_path);
         auto file_sink =
             std::make_shared<spdlog::sinks::basic_file_sink_mt>((log_path / "peshell_latest.log").string(), true);

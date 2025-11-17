@@ -85,7 +85,6 @@ local function main_task()
     log.info("  -> This proves the main flow was not blocked.")
     
     log.info("\n==============================================")
-    -- [修正] 将错误的 log.en_US 改回 log.info
     log.info("  Asynchronous Test Suite Finished")
     log.info("==============================================")
 end

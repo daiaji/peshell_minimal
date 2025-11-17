@@ -2,7 +2,7 @@
 
 # ===============================================================
 #   PEShell Development Build Updater and WIM Integration Script
-#   Version 3.1 - Fetches latest CI artifact from GitHub Actions
+#   Version 3.3 - Improved robustness with ShellCheck SC2181
 # ===============================================================
 
 # --- 配置 ---
@@ -15,10 +15,12 @@ BRANCH_NAME="main"
 
 # WIM 更新配置
 ENABLE_WIM_UPDATE=true # 设置为 'true' 启用 WIM 更新流程, 'false' 则禁用
+# !!! 修改为你的 WIM 文件路径 !!!
 WIM_FILE="/home/daiaji/repo/PE/KuerPE.WIM"
 WIM_IMAGE_INDEX=1
+# !!! 修改为你的挂载点路径 !!!
 MOUNT_POINT="/home/daiaji/repo/PE/Mount/KuerPE"
-# rsync 的目标目录 (挂载点内的相对路径)
+# rsync 的目标目录 (挂载点内的相对路径)，例如在PE中的 \Windows\System32\peshell
 SYNC_TARGET_SUBDIR="/Windows/System32/peshell"
 # ----------------
 
@@ -117,20 +119,19 @@ DOWNLOAD_PATH="${TEMP_DIR}/${FILENAME}"
 EXTRACT_DIR="${TEMP_DIR}/peshell-release-build"
 
 echo "准备下载构建产物..."
-curl -L -o "$DOWNLOAD_PATH" \
+# [[ ShellCheck SC2181 改进 ]] 直接检查命令的退出码
+if ! curl -L -o "$DOWNLOAD_PATH" \
     -H "Authorization: Bearer $GITHUB_TOKEN" \
     -H "Accept: application/vnd.github.v3+json" \
-    "$ARTIFACT_URL"
-
-if [ $? -ne 0 ]; then
+    "$ARTIFACT_URL"; then
     cleanup "构建产物下载失败。"
 fi
 echo -e "${GREEN}下载完成。${NC}"
 
 echo -e "正在解压到 '${EXTRACT_DIR}'...${NC}"
 mkdir -p "$EXTRACT_DIR"
-unzip -o "$DOWNLOAD_PATH" -d "$EXTRACT_DIR" >/dev/null
-if [ $? -ne 0 ]; then
+# [[ ShellCheck SC2181 改进 ]] 直接检查命令的退出码
+if ! unzip -o "$DOWNLOAD_PATH" -d "$EXTRACT_DIR" >/dev/null; then
     cleanup "解压失败。"
 fi
 echo -e "${GREEN}解压完成。${NC}"
@@ -147,8 +148,8 @@ if [ "$ENABLE_WIM_UPDATE" = true ]; then
     fi
     if mountpoint -q "$MOUNT_POINT"; then
         echo -e "${YELLOW}警告: 挂载点 '${MOUNT_POINT}' 已被占用。正在尝试强制卸载...${NC}"
-        wimunmount "$MOUNT_POINT" --force
-        if [ $? -ne 0 ]; then
+        # [[ ShellCheck SC2181 改进 ]] 直接检查命令的退出码
+        if ! wimunmount "$MOUNT_POINT" --force; then
             cleanup "强制卸载失败，请手动处理后重试。"
         fi
         sleep 1
@@ -159,8 +160,8 @@ if [ "$ENABLE_WIM_UPDATE" = true ]; then
     echo "正在以读写模式挂载 WIM 镜像..."
     echo "  源: ${WIM_FILE} (映像 #${WIM_IMAGE_INDEX})"
     echo "  目标: ${MOUNT_POINT}"
-    wimmountrw "$WIM_FILE" "$WIM_IMAGE_INDEX" "$MOUNT_POINT"
-    if [ $? -ne 0 ]; then
+    # [[ ShellCheck SC2181 改进 ]] 直接检查命令的退出码
+    if ! wimmountrw "$WIM_FILE" "$WIM_IMAGE_INDEX" "$MOUNT_POINT"; then
         cleanup "WIM 镜像挂载失败。"
     fi
     echo -e "${GREEN}WIM 挂载成功。${NC}"
@@ -170,29 +171,16 @@ if [ "$ENABLE_WIM_UPDATE" = true ]; then
     echo "  从: ${EXTRACT_DIR}/"
     echo "  到: ${SYNC_TARGET_FULL_PATH}/"
     mkdir -p "$SYNC_TARGET_FULL_PATH"
-    rsync -rvP --delete "${EXTRACT_DIR}/" "${SYNC_TARGET_FULL_PATH}/"
-    if [ $? -ne 0 ]; then
+    # [[ ShellCheck SC2181 改进 ]] 直接检查命令的退出码
+    if ! rsync -rvP --delete "${EXTRACT_DIR}/" "${SYNC_TARGET_FULL_PATH}/"; then
         cleanup "rsync 文件同步失败。"
     fi
     echo -e "${GREEN}文件同步成功。${NC}"
 
-    # 复制 start_peshell_main.bat
-    # 假设此脚本在仓库根目录运行，start_peshell_main.bat 也位于根目录
-    echo "正在复制 start_peshell_main.bat..."
-    if [ -f "./start_peshell_main.bat" ]; then
-        cp "./start_peshell_main.bat" "${MOUNT_POINT}${SYNC_TARGET_SUBDIR}/"
-        if [ $? -ne 0 ]; then
-            cleanup "复制 start_peshell_main.bat 失败。"
-        fi
-        echo -e "${GREEN}start_peshell_main.bat 复制成功。${NC}"
-    else
-        echo -e "${YELLOW}警告: 未在当前目录找到 start_peshell_main.bat，跳过复制。${NC}"
-    fi
-
     # 卸载 WIM 镜像
     echo "正在卸载 WIM 镜像并提交更改（这可能需要一些时间）..."
-    wimunmount "$MOUNT_POINT" --commit --rebuild
-    if [ $? -ne 0 ]; then
+    # [[ ShellCheck SC2181 改进 ]] 直接检查命令的退出码
+    if ! wimunmount "$MOUNT_POINT" --commit --rebuild; then
         cleanup "WIM 卸载或提交失败。"
     fi
     echo -e "${GREEN}WIM 卸载并提交成功。${NC}"

@@ -1,82 +1,121 @@
-# 工作流名称
+# .github/workflows/release.yml
+
 name: Build and Release PEShell
 
-# 工作流触发条件
 on:
-  # 1. 自动触发：当推送 'v*.*.*' 格式的标签时
   push:
     tags:
       - "v*.*.*"
-
-  # 2. 手动触发：允许在 Actions 页面手动运行此工作流
   workflow_dispatch:
     inputs:
       tag_name:
         description: "要创建的标签和版本号 (例如: v1.0.1)"
         required: true
         type: string
-      release_name:
-        description: '发布的标题 (可选, 默认为 "Release [tag_name]")'
-        required: false
-      body:
-        description: "发布说明 (可选, 支持 Markdown)"
-        required: false
-      prerelease:
-        description: "是否标记为预发布版本?"
-        required: true
-        type: boolean
-        default: false
+      # ... 其他输入 ...
 
-# 定义任务
 jobs:
   build-and-release:
-    # 指定运行环境为最新的 Windows
     runs-on: windows-latest
-
-    # 为此任务授予创建 Release 所需的写入权限
     permissions:
       contents: write
 
-    # 任务步骤
     steps:
-      # 步骤1: 检出代码，并递归检出所有子模块
+      # ... [前面 Checkout, Setup MSVC, Cache LuaJIT 等步骤保持不变] ...
       - name: Checkout repository with submodules
         uses: actions/checkout@v4
         with:
           submodules: "recursive"
 
-      # 步骤2: 设置 MSVC 开发环境 (x64)
       - name: Setup MSVC environment
-        uses: microsoft/setup-msbuild@v1.3
-        with:
-          msbuild-architecture: "x64"
+        uses: ilammy/msvc-dev-cmd@v1
+        
+      # ... (省略与 ci.yml 重复的缓存、LuaJIT安装、LuaRocks安装等步骤) ...
 
-      # 步骤3: 定义版本标签变量
+      - name: Get LuaJIT submodule commit hash
+        id: luajit-hash
+        run: |
+          $submodule_hash = (git submodule status vendor/luajit2).Trim().Split(' ')[0]
+          echo "hash=$submodule_hash" >> $env:GITHUB_OUTPUT
+        shell: pwsh
+
+      - name: Cache MSVC-built LuaJIT
+        id: cache-luajit
+        uses: actions/cache@v4
+        with:
+          path: .lua
+          key: msvc-luajit-v2-${{ runner.os }}-${{ steps.luajit-hash.outputs.hash }}
+
+      - name: Build and install LuaJIT if not cached
+        if: steps.cache-luajit.outputs.cache-hit != 'true'
+        run: cmake --build build --config Release --target install_luajit
+
+      - name: Add MSVC-built Lua to PATH
+        run: echo "${{ github.workspace }}\.lua\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+        shell: pwsh
+      
+      - name: Setup LuaRocks
+        uses: luarocks/gh-actions-luarocks@v6
+
+      - name: Cache LuaRocks dependencies
+        id: cache-luarocks
+        uses: actions/cache@v4
+        with:
+          path: staging
+          key: luarocks-deps-v1-${{ runner.os }}-${{ hashFiles('peshell-minimal-dev-1.rockspec') }}
+
+      - name: Install Lua dependencies into staging directory
+        if: steps.cache-luarocks.outputs.cache-hit != 'true'
+        run: |
+          luarocks config variables.LUA_LIBDIR ${{ github.workspace }}\.lua\lib
+          luarocks install --tree=./staging peshell-minimal-dev-1.rockspec --only-deps
+
+      - name: Configure CMake for main project
+        run: cmake -S . -B build -G "Ninja"
+
       - name: Set Release Tag Variable
         id: vars
         run: |
           $tag = if ("${{ github.event_name }}" -eq "push") { "${{ github.ref_name }}" } else { "${{ inputs.tag_name }}" }
           echo "tag_name=$tag" >> $env:GITHUB_OUTPUT
         shell: pwsh
+        
+      - name: Assemble Final Release Package
+        id: assemble
+        run: |
+          luarocks pack peshell-minimal-dev-1.rockspec
+          $package_dir = New-Item -ItemType Directory -Path "${{ github.workspace }}/peshell-release" -Force
+          luarocks install --tree=$package_dir peshell-minimal-dev-1.src.rock --deps-mode=all
+          echo "package_path=$package_dir" >> $env:GITHUB_OUTPUT
+        shell: pwsh
 
-      # 步骤4: 配置 CMake (构建动态库)
-      - name: Configure CMake
-        run: cmake -S . -B build -G "Visual Studio 17 2022" -A x64 -DBUILD_SHARED_LIBS=ON
+      # [[ 核心新增步骤 ]]
+      - name: Copy VC++ Redistributable DLLs
+        run: |
+          $vctools_redist_dir = $env:VCToolsRedistDir
+          $package_bin_dir = "${{ steps.assemble.outputs.package_path }}/bin"
+          
+          Write-Host "Searching for VC++ Redistributable DLLs in: $vctools_redist_dir"
+          
+          Copy-Item -Path "$vctools_redist_dir/x64/Microsoft.VC14*.CRT/*" -Destination $package_bin_dir -Recurse -Force
+          
+          Write-Host "Successfully copied VC++ runtime DLLs."
+        shell: pwsh
 
-      # 步骤5: 编译项目 (Release 模式)
-      - name: Build Project
-        run: cmake --build build --config Release
+      - name: Print final package structure before zipping
+        run: |
+          cd ${{ steps.assemble.outputs.package_path }}
+          tree /F .
+        shell: cmd
 
-      # 步骤6: 创建 Zip 压缩包 (直接压缩 Release 目录)
       - name: Create Zip Archive
         id: package
         run: |
           $zipFileName = "peshell-${{ steps.vars.outputs.tag_name }}.zip"
-          Compress-Archive -Path "build/Release/*" -DestinationPath $zipFileName
+          Compress-Archive -Path "${{ steps.assemble.outputs.package_path }}/*" -DestinationPath $zipFileName
           echo "zip_name=$zipFileName" >> $env:GITHUB_OUTPUT
         shell: pwsh
 
-      # 步骤7: 创建 GitHub Release 并上传压缩包
       - name: Create Release and Upload Artifact
         uses: softprops/action-gh-release@v1
         with:

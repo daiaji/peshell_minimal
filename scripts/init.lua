@@ -28,7 +28,10 @@ log.debug("wpeinit command line: ", wpeinit_cmd)
 local wpeinit_proc = process.exec_async({ command = wpeinit_cmd })
 if wpeinit_proc then
     log.info("wpeinit.exe started, waiting for it to finish...")
-    wpeinit_proc:wait_for_exit_async(-1)
+    -- [[ 核心修正 ]]
+    -- 在同步脚本中，必须使用阻塞式等待，以确保任务按顺序执行。
+    -- -1 表示无限期等待，直到进程退出。
+    wpeinit_proc:wait_for_exit_blocking(-1)
     wpeinit_proc:close_handle()
     log.info("wpeinit.exe finished.")
 else

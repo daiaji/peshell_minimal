@@ -18,59 +18,109 @@ jobs:
           submodules: "recursive"
 
       - name: Setup MSVC environment
-        uses: microsoft/setup-msbuild@v1.3
-        with:
-          msbuild-architecture: "x64"
+        uses: ilammy/msvc-dev-cmd@v1
 
-      - name: Configure CMake
-        run: cmake -S . -B build -G "Visual Studio 17 2022" -A x64 -DBUILD_SHARED_LIBS=ON
-
-      - name: Build Project
-        run: cmake --build build --config Release
-
-      - name: Check Executable Dependencies
+      - name: Get LuaJIT submodule commit hash
+        id: luajit-hash
         run: |
-          call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvarsall.bat" x64
-          echo "--- Checking dependencies for peshell.exe ---"
-          dumpbin /dependents build/Release/peshell.exe
+          $submodule_hash = (git submodule status vendor/luajit2).Trim().Split(' ')[0]
+          echo "hash=$submodule_hash" >> $env:GITHUB_OUTPUT
+        shell: pwsh
+
+      - name: Cache MSVC-built LuaJIT
+        id: cache-luajit
+        uses: actions/cache@v4
+        with:
+          path: .lua
+          key: msvc-luajit-v2-${{ runner.os }}-${{ steps.luajit-hash.outputs.hash }}
+
+      - name: Configure CMake for Release Build
+        run: cmake -S . -B build -G "Ninja" -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build and install LuaJIT if not cached
+        if: steps.cache-luajit.outputs.cache-hit != 'true'
+        run: cmake --build build --config Release --target install_luajit
+
+      - name: Add MSVC-built Lua to PATH
+        run: echo "${{ github.workspace }}\.lua\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+        shell: pwsh
+      
+      - name: Setup LuaRocks
+        uses: luarocks/gh-actions-luarocks@v6
+
+      - name: Build and Assemble Self-Contained Package
+        id: assemble
+        run: |
+          # 1. 创建最终的包目录结构
+          $package_dir = New-Item -ItemType Directory -Path "${{ github.workspace }}/package" -Force
+          $bin_dir      = New-Item -ItemType Directory -Path "$package_dir/bin"
+          $lua_dir      = New-Item -ItemType Directory -Path "$package_dir/share/lua/5.1" -Force
+
+          # 2. 编译我们自己的 C++ 代码 (使用 Release 配置)
+          cmake --build build --config Release
+          
+          # 3. 将我们自己的产物复制到最终目录
+          Write-Host "Copying project artifacts..."
+          Copy-Item -Path "build/bin/*" -Destination $bin_dir
+
+          # 4. 将我们自己的 Lua 脚本复制到最终目录
+          Copy-Item -Path "scripts/*" -Destination $lua_dir -Recurse
+          Copy-Item -Path "start_peshell_main.bat" -Destination $package_dir
+
+          # 5. 使用 LuaRocks 将 *依赖项* 安装到最终目录中
+          Write-Host "Installing dependencies directly into the package..."
+          luarocks install --tree=$package_dir peshell-minimal-dev-1.rockspec --only-deps
+          
+          # 6. 将所有依赖的 .dll 文件（如 lfs.dll）统一移动到 bin 目录
+          Write-Host "Consolidating all DLLs into the bin directory..."
+          Get-ChildItem -Path "$package_dir/lib" -Filter "*.dll" -Recurse | Move-Item -Destination $bin_dir -Force
+          
+          # --- [[ 核心修正：添加清理步骤 ]] ---
+          Write-Host "Cleaning up the package..."
+
+          # 7. [新增] 移除 bin 目录中所有非必需的调试和中间文件
+          Write-Host "  -> Removing debug and intermediate files from bin..."
+          Remove-Item -Path "$bin_dir/*.pdb", "$bin_dir/*.ilk" -ErrorAction SilentlyContinue
+
+          # 8. [新增] 彻底删除整个 lib 目录，因为它现在已经没用了
+          Write-Host "  -> Removing temporary luarocks lib directory..."
+          Remove-Item -Path "$package_dir/lib" -Recurse -Force
+
+          echo "package_path=$package_dir" >> $env:GITHUB_OUTPUT
+        shell: pwsh
+        
+      - name: Copy VC++ Redistributable DLLs
+        run: |
+          $vctools_redist_dir = $env:VCToolsRedistDir
+          $package_bin_dir = "${{ steps.assemble.outputs.package_path }}/bin"
+          Write-Host "Copying VC++ Redistributable DLLs from: $vctools_redist_dir"
+          Copy-Item -Path "$vctools_redist_dir/x64/Microsoft.VC14*.CRT/*" -Destination $package_bin_dir -Recurse -Force
+          Write-Host "Successfully copied VC++ runtime DLLs."
+        shell: pwsh
+
+      - name: Print final package structure
+        run: |
+          cd ${{ steps.assemble.outputs.package_path }}
+          tree /F .
         shell: cmd
 
-      # 第一个测试步骤：运行单元和集成测试
       - name: Run Lua Unit & Integration Tests
         run: |
-          echo "--- Starting Lua Unit & Integration Test Suite ---"
-          
-          set "BUILD_DIR=%CD%\build\Release"
-          echo "Adding %BUILD_DIR% to PATH"
-          set "PATH=%BUILD_DIR%;%PATH%"
-          
-          cd %BUILD_DIR%
-          
-          REM [修正] 在 cmd shell 中, 使用 REM 作为注释符
-          peshell.exe run scripts/test_suite.lua
-          
-          echo "--- Lua Unit & Integration Test Suite Finished ---"
-        shell: cmd
+          cd ${{ steps.assemble.outputs.package_path }}
+          .\bin\peshell.exe run .\share\lua\5.1\test_suite.lua
+        shell: pwsh
 
-      # 第二个测试步骤：专门测试 await 和协程调度器
-      - name: Run Async/Await Mechanism Tests
+      # --- [[ 核心修正：测试后再次清理 ]] ---
+      - name: Clean up logs created by tests
+        if: always() # 无论测试是否成功，都执行清理
         run: |
-          echo "--- Starting Async/Await Mechanism Test Suite ---"
-          
-          set "BUILD_DIR=%CD%\build\Release"
-          set "PATH=%BUILD_DIR%;%PATH%"
-          cd %BUILD_DIR%
-
-          REM [修正] 在 cmd shell 中, 使用 REM 作为注释符
-          REM test_async.lua 内部会通过 PostQuitMessage 结束进程并返回退出码
-          peshell.exe main scripts/test_async.lua run_from_main
-          
-          echo "--- Async/Await Mechanism Test Suite Finished ---"
-        shell: cmd
+          Write-Host "Removing logs directory generated during test run..."
+          Remove-Item -Path "${{ steps.assemble.outputs.package_path }}/logs" -Recurse -Force -ErrorAction SilentlyContinue
+        shell: pwsh
 
       - name: Upload Build Artifact
         uses: actions/upload-artifact@v4
         with:
           name: peshell-build-artifact
-          path: build/Release/
+          path: ${{ steps.assemble.outputs.package_path }}/
           retention-days: 7

@@ -1,0 +1,440 @@
+11月 18 12:58:42 MiniPC systemd[931]: Starting Podman container-caddy.service...
+░░ Subject: UNIT 单元已开始启动
+░░ Defined-By: systemd
+░░ Support: https://forum.manjaro.org/c/support
+░░ 
+░░ UNIT 单元已开始启动。
+11月 18 12:58:43 MiniPC podman[106922]: 2025-11-18 12:58:43.017987319 +0800 CST m=+0.028499821 container create 9dd0335e7e07b3c0805933d0f4012a8cee00e65873e79a4846faeb143e87dc47 (image=ghcr.io/daiaji/caddy:latest, name=caddy, org.opencontainers.image.documentation=https://caddyserver.com/docs, org.opencontainers.image.title=Caddy, io.containers.autoupdate=image, org.opencontainers.image.description=a powerful, enterprise-ready, open source web server with automatic HTTPS written in Go, io.buildah.version=1.33.7, org.opencontainers.image.vendor=Light Code Labs, PODMAN_SYSTEMD_UNIT=container-caddy.service, org.opencontainers.image.version=v2.10.2, org.opencontainers.image.licenses=Apache-2.0, org.opencontainers.image.source=https://github.com/caddyserver/caddy-docker, org.opencontainers.image.url=https://caddyserver.com)
+11月 18 12:58:43 MiniPC pasta[106939]: Failed to bind port 8080 (Address already in use) for option '-t 8080-8081:8080-8081'
+11月 18 12:58:43 MiniPC podman[106922]: 2025-11-18 12:58:43.042744588 +0800 CST m=+0.053257110 container remove 9dd0335e7e07b3c0805933d0f4012a8cee00e65873e79a4846faeb143e87dc47 (image=ghcr.io/daiaji/caddy:latest, name=caddy, org.opencontainers.image.licenses=Apache-2.0, org.opencontainers.image.url=https://caddyserver.com, io.buildah.version=1.33.7, io.containers.autoupdate=image, org.opencontainers.image.version=v2.10.2, PODMAN_SYSTEMD_UNIT=container-caddy.service, org.opencontainers.image.source=https://github.com/caddyserver/caddy-docker, org.opencontainers.image.title=Caddy, org.opencontainers.image.vendor=Light Code Labs, org.opencontainers.image.description=a powerful, enterprise-ready, open source web server with automatic HTTPS written in Go, org.opencontainers.image.documentation=https://caddyserver.com/docs)
+11月 18 12:58:43 MiniPC podman[106922]: 2025-11-18 12:58:43.00632509 +0800 CST m=+0.016837612 image pull 3ce0d809f0d8e74e1a318b1a7a0e1fa2bc431c02f1baafc69855c4e74b755b59 ghcr.io/daiaji/caddy:latest
+11月 18 12:58:43 MiniPC podman[106922]: Error: pasta failed with exit code 1:
+11月 18 12:58:43 MiniPC podman[106922]: Failed to bind port 8080 (Address already in use) for option '-t 8080-8081:8080-8081'
+11月 18 12:58:43 MiniPC systemd[931]: container-caddy.service: Main process exited, code=exited, status=126/n/a
+░░ Subject: Unit process exited
+░░ Defined-By: systemd
+░░ Support: https://forum.manjaro.org/c/support
+░░ 
+░░ An ExecStart= process belonging to unit UNIT has exited.
+░░ 
+░░ The process' exit code is 'exited' and its exit status is 126.
+11月 18 12:58:43 MiniPC systemd[931]: container-caddy.service: Failed with result 'exit-code'.
+░░ Subject: Unit failed
+░░ Defined-By: systemd
+░░ Support: https://forum.manjaro.org/c/support
+░░ 
+░░ The unit UNIT has entered the 'failed' state with result 'exit-code'.
+11月 18 12:58:43 MiniPC systemd[931]: Failed to start Podman container-caddy.service.
+░░ Subject: UNIT 单元已失败
+░░ Defined-By: systemd
+░░ Support: https://forum.manjaro.org/c/support
+░░ 
+░░ UNIT 单元已失败。
+░░ 
+░░ 结果为“failed”。
+11月 18 12:58:43 MiniPC systemd[931]: container-caddy.service: Scheduled restart job, restart counter is at 1.
+░░ Subject: Automatic restarting of a unit has been scheduled
+░░ Defined-By: systemd
+░░ Support: https://forum.manjaro.org/c/support
+░░ 
+░░ Automatic restarting of the unit UNIT has been scheduled, as the result for
+░░ the configured Restart= setting for the unit.
+11月 18 12:58:43 MiniPC systemd[931]: Starting Podman container-caddy.service...
+░░ Subject: UNIT 单元已开始启动
+░░ Defined-By: systemd
+░░ Support: https://forum.manjaro.org/c/support
+░░ 
+░░ UNIT 单元已开始启动。
+11月 18 12:58:43 MiniPC podman[106967]: 2025-11-18 12:58:43.456549926 +0800 CST m=+0.023773291 container create 85d0026aff278509132c6f21d8346d36dd5729a8b11ada167c601d9bb4f18cca (image=ghcr.io/daiaji/caddy:latest, name=caddy, org.opencontainers.image.version=v2.10.2, org.opencontainers.image.documentation=https://caddyserver.com/docs, io.containers.autoupdate=image, io.buildah.version=1.33.7, org.opencontainers.image.vendor=Light Code Labs, org.opencontainers.image.source=https://github.com/caddyserver/caddy-docker, PODMAN_SYSTEMD_UNIT=container-caddy.service, org.opencontainers.image.licenses=Apache-2.0, org.opencontainers.image.url=https://caddyserver.com, org.opencontainers.image.description=a powerful, enterprise-ready, open source web server with automatic HTTPS written in Go, org.opencontainers.image.title=Caddy)
+11月 18 12:58:43 MiniPC pasta[106983]: Failed to bind port 8080 (Address already in use) for option '-t 8080-8081:8080-8081'
+11月 18 12:58:43 MiniPC podman[106967]: 2025-11-18 12:58:43.481955025 +0800 CST m=+0.049178380 container remove 85d0026aff278509132c6f21d8346d36dd5729a8b11ada167c601d9bb4f18cca (image=ghcr.io/daiaji/caddy:latest, name=caddy, org.opencontainers.image.description=a powerful, enterprise-ready, open source web server with automatic HTTPS written in Go, org.opencontainers.image.source=https://github.com/caddyserver/caddy-docker, io.containers.autoupdate=image, org.opencontainers.image.documentation=https://caddyserver.com/docs, org.opencontainers.image.licenses=Apache-2.0, PODMAN_SYSTEMD_UNIT=container-caddy.service, org.opencontainers.image.title=Caddy, org.opencontainers.image.url=https://caddyserver.com, io.buildah.version=1.33.7, org.opencontainers.image.vendor=Light Code Labs, org.opencontainers.image.version=v2.10.2)
+11月 18 12:58:43 MiniPC podman[106967]: 2025-11-18 12:58:43.445991605 +0800 CST m=+0.013214960 image pull 3ce0d809f0d8e74e1a318b1a7a0e1fa2bc431c02f1baafc69855c4e74b755b59 ghcr.io/daiaji/caddy:latest
+11月 18 12:58:43 MiniPC podman[106967]: Error: pasta failed with exit code 1:
+11月 18 12:58:43 MiniPC podman[106967]: Failed to bind port 8080 (Address already in use) for option '-t 8080-8081:8080-8081'
+11月 18 12:58:43 MiniPC systemd[931]: container-caddy.service: Main process exited, code=exited, status=126/n/a
+░░ Subject: Unit process exited
+░░ Defined-By: systemd
+░░ Support: https://forum.manjaro.org/c/support
+░░ 
+░░ An ExecStart= process belonging to unit UNIT has exited.
+░░ 
+░░ The process' exit code is 'exited' and its exit status is 126.
+11月 18 12:58:43 MiniPC systemd[931]: container-caddy.service: Failed with result 'exit-code'.
+░░ Subject: Unit failed
+░░ Defined-By: systemd
+░░ Support: https://forum.manjaro.org/c/support
+░░ 
+░░ The unit UNIT has entered the 'failed' state with result 'exit-code'.
+11月 18 12:58:43 MiniPC systemd[931]: Failed to start Podman container-caddy.service.
+░░ Subject: UNIT 单元已失败
+░░ Defined-By: systemd
+░░ Support: https://forum.manjaro.org/c/support
+░░ 
+░░ UNIT 单元已失败。
+░░ 
+░░ 结果为“failed”。
+11月 18 12:58:43 MiniPC systemd[931]: container-caddy.service: Scheduled restart job, restart counter is at 2.
+░░ Subject: Automatic restarting of a unit has been scheduled
+░░ Defined-By: systemd
+░░ Support: https://forum.manjaro.org/c/support
+░░ 
+░░ Automatic restarting of the unit UNIT has been scheduled, as the result for
+░░ the configured Restart= setting for the unit.
+11月 18 12:58:43 MiniPC systemd[931]: Starting Podman container-caddy.service...
+░░ Subject: UNIT 单元已开始启动
+░░ Defined-By: systemd
+░░ Support: https://forum.manjaro.org/c/support
+░░ 
+░░ UNIT 单元已开始启动。
+11月 18 12:58:43 MiniPC podman[107006]: 2025-11-18 12:58:43.954762588 +0800 CST m=+0.025437713 container create 6847bc3e70192ca6c1e4ccdc0255eb3d300812b9d05395aa0692c154a8bf16c4 (image=ghcr.io/daiaji/caddy:latest, name=caddy, org.opencontainers.image.documentation=https://caddyserver.com/docs, org.opencontainers.image.version=v2.10.2, io.containers.autoupdate=image, org.opencontainers.image.source=https://github.com/caddyserver/caddy-docker, PODMAN_SYSTEMD_UNIT=container-caddy.service, io.buildah.version=1.33.7, org.opencontainers.image.licenses=Apache-2.0, org.opencontainers.image.vendor=Light Code Labs, org.opencontainers.image.title=Caddy, org.opencontainers.image.url=https://caddyserver.com, org.opencontainers.image.description=a powerful, enterprise-ready, open source web server with automatic HTTPS written in Go)
+11月 18 12:58:43 MiniPC pasta[107023]: Failed to bind port 8080 (Address already in use) for option '-t 8080-8081:8080-8081'
+11月 18 12:58:43 MiniPC podman[107006]: 2025-11-18 12:58:43.979859212 +0800 CST m=+0.050534347 container remove 6847bc3e70192ca6c1e4ccdc0255eb3d300812b9d05395aa0692c154a8bf16c4 (image=ghcr.io/daiaji/caddy:latest, name=caddy, org.opencontainers.image.version=v2.10.2, org.opencontainers.image.description=a powerful, enterprise-ready, open source web server with automatic HTTPS written in Go, org.opencontainers.image.licenses=Apache-2.0, org.opencontainers.image.source=https://github.com/caddyserver/caddy-docker, org.opencontainers.image.title=Caddy, PODMAN_SYSTEMD_UNIT=container-caddy.service, io.buildah.version=1.33.7, io.containers.autoupdate=image, org.opencontainers.image.documentation=https://caddyserver.com/docs, org.opencontainers.image.url=https://caddyserver.com, org.opencontainers.image.vendor=Light Code Labs)
+11月 18 12:58:43 MiniPC podman[107006]: 2025-11-18 12:58:43.943291172 +0800 CST m=+0.013966297 image pull 3ce0d809f0d8e74e1a318b1a7a0e1fa2bc431c02f1baafc69855c4e74b755b59 ghcr.io/daiaji/caddy:latest
+11月 18 12:58:43 MiniPC podman[107006]: Error: pasta failed with exit code 1:
+11月 18 12:58:43 MiniPC podman[107006]: Failed to bind port 8080 (Address already in use) for option '-t 8080-8081:8080-8081'
+11月 18 12:58:43 MiniPC systemd[931]: container-caddy.service: Main process exited, code=exited, status=126/n/a
+░░ Subject: Unit process exited
+░░ Defined-By: systemd
+░░ Support: https://forum.manjaro.org/c/support
+░░ 
+░░ An ExecStart= process belonging to unit UNIT has exited.
+░░ 
+░░ The process' exit code is 'exited' and its exit status is 126.
+11月 18 12:58:44 MiniPC systemd[931]: container-caddy.service: Failed with result 'exit-code'.
+░░ Subject: Unit failed
+░░ Defined-By: systemd
+░░ Support: https://forum.manjaro.org/c/support
+░░ 
+░░ The unit UNIT has entered the 'failed' state with result 'exit-code'.
+11月 18 12:58:44 MiniPC systemd[931]: Failed to start Podman container-caddy.service.
+░░ Subject: UNIT 单元已失败
+░░ Defined-By: systemd
+░░ Support: https://forum.manjaro.org/c/support
+░░ 
+░░ UNIT 单元已失败。
+░░ 
+░░ 结果为“failed”。
+11月 18 12:58:44 MiniPC systemd[931]: container-caddy.service: Scheduled restart job, restart counter is at 3.
+░░ Subject: Automatic restarting of a unit has been scheduled
+░░ Defined-By: systemd
+░░ Support: https://forum.manjaro.org/c/support
+░░ 
+░░ Automatic restarting of the unit UNIT has been scheduled, as the result for
+░░ the configured Restart= setting for the unit.
+11月 18 12:58:44 MiniPC systemd[931]: Starting Podman container-caddy.service...
+░░ Subject: UNIT 单元已开始启动
+░░ Defined-By: systemd
+░░ Support: https://forum.manjaro.org/c/support
+░░ 
+░░ UNIT 单元已开始启动。
+11月 18 12:58:44 MiniPC podman[107048]: 2025-11-18 12:58:44.217236012 +0800 CST m=+0.024943254 container create 10114c9bc8f55235f9f7e4692fd9bc8c63dba2a2b1fdde3ea8c422831352c974 (image=ghcr.io/daiaji/caddy:latest, name=caddy, PODMAN_SYSTEMD_UNIT=container-caddy.service, org.opencontainers.image.description=a powerful, enterprise-ready, open source web server with automatic HTTPS written in Go, org.opencontainers.image.url=https://caddyserver.com, org.opencontainers.image.licenses=Apache-2.0, org.opencontainers.image.vendor=Light Code Labs, org.opencontainers.image.version=v2.10.2, org.opencontainers.image.documentation=https://caddyserver.com/docs, io.containers.autoupdate=image, org.opencontainers.image.title=Caddy, io.buildah.version=1.33.7, org.opencontainers.image.source=https://github.com/caddyserver/caddy-docker)
+11月 18 12:58:44 MiniPC pasta[107065]: Failed to bind port 8080 (Address already in use) for option '-t 8080-8081:8080-8081'
+11月 18 12:58:44 MiniPC podman[107048]: 2025-11-18 12:58:44.242069596 +0800 CST m=+0.049776848 container remove 10114c9bc8f55235f9f7e4692fd9bc8c63dba2a2b1fdde3ea8c422831352c974 (image=ghcr.io/daiaji/caddy:latest, name=caddy, org.opencontainers.image.version=v2.10.2, org.opencontainers.image.description=a powerful, enterprise-ready, open source web server with automatic HTTPS written in Go, org.opencontainers.image.licenses=Apache-2.0, org.opencontainers.image.title=Caddy, io.buildah.version=1.33.7, io.containers.autoupdate=image, org.opencontainers.image.source=https://github.com/caddyserver/caddy-docker, PODMAN_SYSTEMD_UNIT=container-caddy.service, org.opencontainers.image.documentation=https://caddyserver.com/docs, org.opencontainers.image.url=https://caddyserver.com, org.opencontainers.image.vendor=Light Code Labs)
+11月 18 12:58:44 MiniPC podman[107048]: 2025-11-18 12:58:44.205511675 +0800 CST m=+0.013218917 image pull 3ce0d809f0d8e74e1a318b1a7a0e1fa2bc431c02f1baafc69855c4e74b755b59 ghcr.io/daiaji/caddy:latest
+11月 18 12:58:44 MiniPC podman[107048]: Error: pasta failed with exit code 1:
+11月 18 12:58:44 MiniPC podman[107048]: Failed to bind port 8080 (Address already in use) for option '-t 8080-8081:8080-8081'
+11月 18 12:58:44 MiniPC systemd[931]: container-caddy.service: Main process exited, code=exited, status=126/n/a
+░░ Subject: Unit process exited
+░░ Defined-By: systemd
+░░ Support: https://forum.manjaro.org/c/support
+░░ 
+░░ An ExecStart= process belonging to unit UNIT has exited.
+░░ 
+░░ The process' exit code is 'exited' and its exit status is 126.
+11月 18 12:58:44 MiniPC systemd[931]: container-caddy.service: Failed with result 'exit-code'.
+░░ Subject: Unit failed
+░░ Defined-By: systemd
+░░ Support: https://forum.manjaro.org/c/support
+░░ 
+░░ The unit UNIT has entered the 'failed' state with result 'exit-code'.
+11月 18 12:58:44 MiniPC systemd[931]: Failed to start Podman container-caddy.service.
+░░ Subject: UNIT 单元已失败
+░░ Defined-By: systemd
+░░ Support: https://forum.manjaro.org/c/support
+░░ 
+░░ UNIT 单元已失败。
+░░ 
+░░ 结果为“failed”。
+11月 18 12:58:44 MiniPC systemd[931]: container-caddy.service: Scheduled restart job, restart counter is at 4.
+░░ Subject: Automatic restarting of a unit has been scheduled
+░░ Defined-By: systemd
+░░ Support: https://forum.manjaro.org/c/support
+░░ 
+░░ Automatic restarting of the unit UNIT has been scheduled, as the result for
+░░ the configured Restart= setting for the unit.
+11月 18 12:58:44 MiniPC systemd[931]: Starting Podman container-caddy.service...
+░░ Subject: UNIT 单元已开始启动
+░░ Defined-By: systemd
+░░ Support: https://forum.manjaro.org/c/support
+░░ 
+░░ UNIT 单元已开始启动。
+11月 18 12:58:44 MiniPC podman[107089]: 2025-11-18 12:58:44.721481967 +0800 CST m=+0.024709149 container create 54d435e6959a64b9aedcae398653391ea0be5c98ae68fef519dffe8c33856c2a (image=ghcr.io/daiaji/caddy:latest, name=caddy, io.containers.autoupdate=image, org.opencontainers.image.version=v2.10.2, PODMAN_SYSTEMD_UNIT=container-caddy.service, org.opencontainers.image.vendor=Light Code Labs, org.opencontainers.image.description=a powerful, enterprise-ready, open source web server with automatic HTTPS written in Go, org.opencontainers.image.licenses=Apache-2.0, org.opencontainers.image.documentation=https://caddyserver.com/docs, org.opencontainers.image.source=https://github.com/caddyserver/caddy-docker, org.opencontainers.image.url=https://caddyserver.com, io.buildah.version=1.33.7, org.opencontainers.image.title=Caddy)
+11月 18 12:58:44 MiniPC pasta[107106]: Failed to bind port 8080 (Address already in use) for option '-t 8080-8081:8080-8081'
+11月 18 12:58:44 MiniPC podman[107089]: 2025-11-18 12:58:44.746255347 +0800 CST m=+0.049482539 container remove 54d435e6959a64b9aedcae398653391ea0be5c98ae68fef519dffe8c33856c2a (image=ghcr.io/daiaji/caddy:latest, name=caddy, org.opencontainers.image.title=Caddy, org.opencontainers.image.vendor=Light Code Labs, org.opencontainers.image.source=https://github.com/caddyserver/caddy-docker, org.opencontainers.image.url=https://caddyserver.com, org.opencontainers.image.version=v2.10.2, PODMAN_SYSTEMD_UNIT=container-caddy.service, org.opencontainers.image.description=a powerful, enterprise-ready, open source web server with automatic HTTPS written in Go, org.opencontainers.image.documentation=https://caddyserver.com/docs, io.buildah.version=1.33.7, io.containers.autoupdate=image, org.opencontainers.image.licenses=Apache-2.0)
+11月 18 12:58:44 MiniPC podman[107089]: 2025-11-18 12:58:44.710466387 +0800 CST m=+0.013693579 image pull 3ce0d809f0d8e74e1a318b1a7a0e1fa2bc431c02f1baafc69855c4e74b755b59 ghcr.io/daiaji/caddy:latest
+11月 18 12:58:44 MiniPC podman[107089]: Error: pasta failed with exit code 1:
+11月 18 12:58:44 MiniPC podman[107089]: Failed to bind port 8080 (Address already in use) for option '-t 8080-8081:8080-8081'
+11月 18 12:58:44 MiniPC systemd[931]: container-caddy.service: Main process exited, code=exited, status=126/n/a
+░░ Subject: Unit process exited
+░░ Defined-By: systemd
+░░ Support: https://forum.manjaro.org/c/support
+░░ 
+░░ An ExecStart= process belonging to unit UNIT has exited.
+░░ 
+░░ The process' exit code is 'exited' and its exit status is 126.
+11月 18 12:58:44 MiniPC systemd[931]: container-caddy.service: Failed with result 'exit-code'.
+░░ Subject: Unit failed
+░░ Defined-By: systemd
+░░ Support: https://forum.manjaro.org/c/support
+░░ 
+░░ The unit UNIT has entered the 'failed' state with result 'exit-code'.
+11月 18 12:58:44 MiniPC systemd[931]: Failed to start Podman container-caddy.service.
+░░ Subject: UNIT 单元已失败
+░░ Defined-By: systemd
+░░ Support: https://forum.manjaro.org/c/support
+░░ 
+░░ UNIT 单元已失败。
+░░ 
+░░ 结果为“failed”。
+11月 18 12:58:45 MiniPC systemd[931]: container-caddy.service: Scheduled restart job, restart counter is at 5.
+░░ Subject: Automatic restarting of a unit has been scheduled
+░░ Defined-By: systemd
+░░ Support: https://forum.manjaro.org/c/support
+░░ 
+░░ Automatic restarting of the unit UNIT has been scheduled, as the result for
+░░ the configured Restart= setting for the unit.
+11月 18 12:58:45 MiniPC systemd[931]: container-caddy.service: Start request repeated too quickly.
+11月 18 12:58:45 MiniPC systemd[931]: container-caddy.service: Failed with result 'exit-code'.
+░░ Subject: Unit failed
+░░ Defined-By: systemd
+░░ Support: https://forum.manjaro.org/c/support
+░░ 
+░░ The unit UNIT has entered the 'failed' state with result 'exit-code'.
+11月 18 12:58:45 MiniPC systemd[931]: Failed to start Podman container-caddy.service.
+░░ Subject: UNIT 单元已失败
+░░ Defined-By: systemd
+░░ Support: https://forum.manjaro.org/c/support
+░░ 
+░░ UNIT 单元已失败。
+░░ 
+░░ 结果为“failed”。
+11月 18 13:00:19 MiniPC systemd[931]: Starting Podman container-caddy.service...
+░░ Subject: UNIT 单元已开始启动
+░░ Defined-By: systemd
+░░ Support: https://forum.manjaro.org/c/support
+░░ 
+░░ UNIT 单元已开始启动。
+11月 18 13:00:19 MiniPC podman[107962]: 2025-11-18 13:00:19.196705632 +0800 CST m=+0.026920858 container create 63a09240a3d0753bff37fc49ff5da0bb309f067236fa7b4acf7265769fd08d2e (image=ghcr.io/daiaji/caddy:latest, name=caddy, org.opencontainers.image.url=https://caddyserver.com, io.buildah.version=1.33.7, org.opencontainers.image.documentation=https://caddyserver.com/docs, org.opencontainers.image.description=a powerful, enterprise-ready, open source web server with automatic HTTPS written in Go, org.opencontainers.image.licenses=Apache-2.0, PODMAN_SYSTEMD_UNIT=container-caddy.service, org.opencontainers.image.title=Caddy, org.opencontainers.image.version=v2.10.2, org.opencontainers.image.source=https://github.com/caddyserver/caddy-docker, io.containers.autoupdate=image, org.opencontainers.image.vendor=Light Code Labs)
+11月 18 13:00:19 MiniPC pasta[107979]: Failed to bind port 8080 (Address already in use) for option '-t 8080-8081:8080-8081'
+11月 18 13:00:19 MiniPC podman[107962]: 2025-11-18 13:00:19.219929606 +0800 CST m=+0.050144832 container remove 63a09240a3d0753bff37fc49ff5da0bb309f067236fa7b4acf7265769fd08d2e (image=ghcr.io/daiaji/caddy:latest, name=caddy, PODMAN_SYSTEMD_UNIT=container-caddy.service, org.opencontainers.image.documentation=https://caddyserver.com/docs, org.opencontainers.image.licenses=Apache-2.0, org.opencontainers.image.description=a powerful, enterprise-ready, open source web server with automatic HTTPS written in Go, org.opencontainers.image.source=https://github.com/caddyserver/caddy-docker, org.opencontainers.image.title=Caddy, io.buildah.version=1.33.7, io.containers.autoupdate=image, org.opencontainers.image.url=https://caddyserver.com, org.opencontainers.image.vendor=Light Code Labs, org.opencontainers.image.version=v2.10.2)
+11月 18 13:00:19 MiniPC podman[107962]: 2025-11-18 13:00:19.184020301 +0800 CST m=+0.014235538 image pull 3ce0d809f0d8e74e1a318b1a7a0e1fa2bc431c02f1baafc69855c4e74b755b59 ghcr.io/daiaji/caddy:latest
+11月 18 13:00:19 MiniPC podman[107962]: Error: pasta failed with exit code 1:
+11月 18 13:00:19 MiniPC podman[107962]: Failed to bind port 8080 (Address already in use) for option '-t 8080-8081:8080-8081'
+11月 18 13:00:19 MiniPC systemd[931]: container-caddy.service: Main process exited, code=exited, status=126/n/a
+░░ Subject: Unit process exited
+░░ Defined-By: systemd
+░░ Support: https://forum.manjaro.org/c/support
+░░ 
+░░ An ExecStart= process belonging to unit UNIT has exited.
+░░ 
+░░ The process' exit code is 'exited' and its exit status is 126.
+11月 18 13:00:19 MiniPC systemd[931]: container-caddy.service: Failed with result 'exit-code'.
+░░ Subject: Unit failed
+░░ Defined-By: systemd
+░░ Support: https://forum.manjaro.org/c/support
+░░ 
+░░ The unit UNIT has entered the 'failed' state with result 'exit-code'.
+11月 18 13:00:19 MiniPC systemd[931]: Failed to start Podman container-caddy.service.
+░░ Subject: UNIT 单元已失败
+░░ Defined-By: systemd
+░░ Support: https://forum.manjaro.org/c/support
+░░ 
+░░ UNIT 单元已失败。
+░░ 
+░░ 结果为“failed”。
+11月 18 13:00:19 MiniPC systemd[931]: container-caddy.service: Scheduled restart job, restart counter is at 1.
+░░ Subject: Automatic restarting of a unit has been scheduled
+░░ Defined-By: systemd
+░░ Support: https://forum.manjaro.org/c/support
+░░ 
+░░ Automatic restarting of the unit UNIT has been scheduled, as the result for
+░░ the configured Restart= setting for the unit.
+11月 18 13:00:19 MiniPC systemd[931]: Starting Podman container-caddy.service...
+░░ Subject: UNIT 单元已开始启动
+░░ Defined-By: systemd
+░░ Support: https://forum.manjaro.org/c/support
+░░ 
+░░ UNIT 单元已开始启动。
+11月 18 13:00:19 MiniPC podman[108004]: 2025-11-18 13:00:19.675728657 +0800 CST m=+0.013139415 image pull 3ce0d809f0d8e74e1a318b1a7a0e1fa2bc431c02f1baafc69855c4e74b755b59 ghcr.io/daiaji/caddy:latest
+11月 18 13:00:19 MiniPC podman[108004]: 2025-11-18 13:00:19.784557363 +0800 CST m=+0.121968121 container create a88bea7be2533eba1631a06556921d0ec44dc2561941f4e39167b6c7ea4600ac (image=ghcr.io/daiaji/caddy:latest, name=caddy, org.opencontainers.image.vendor=Light Code Labs, org.opencontainers.image.documentation=https://caddyserver.com/docs, io.containers.autoupdate=image, org.opencontainers.image.description=a powerful, enterprise-ready, open source web server with automatic HTTPS written in Go, org.opencontainers.image.version=v2.10.2, org.opencontainers.image.url=https://caddyserver.com, org.opencontainers.image.title=Caddy, PODMAN_SYSTEMD_UNIT=container-caddy.service, org.opencontainers.image.source=https://github.com/caddyserver/caddy-docker, io.buildah.version=1.33.7, org.opencontainers.image.licenses=Apache-2.0)
+11月 18 13:00:19 MiniPC pasta[108021]: Failed to bind port 8080 (Address already in use) for option '-t 8080-8081:8080-8081'
+11月 18 13:00:19 MiniPC podman[108004]: 2025-11-18 13:00:19.813575605 +0800 CST m=+0.150986363 container remove a88bea7be2533eba1631a06556921d0ec44dc2561941f4e39167b6c7ea4600ac (image=ghcr.io/daiaji/caddy:latest, name=caddy, org.opencontainers.image.vendor=Light Code Labs, org.opencontainers.image.url=https://caddyserver.com, io.containers.autoupdate=image, org.opencontainers.image.description=a powerful, enterprise-ready, open source web server with automatic HTTPS written in Go, org.opencontainers.image.version=v2.10.2, io.buildah.version=1.33.7, org.opencontainers.image.licenses=Apache-2.0, PODMAN_SYSTEMD_UNIT=container-caddy.service, org.opencontainers.image.documentation=https://caddyserver.com/docs, org.opencontainers.image.source=https://github.com/caddyserver/caddy-docker, org.opencontainers.image.title=Caddy)
+11月 18 13:00:19 MiniPC podman[108004]: Error: pasta failed with exit code 1:
+11月 18 13:00:19 MiniPC podman[108004]: Failed to bind port 8080 (Address already in use) for option '-t 8080-8081:8080-8081'
+11月 18 13:00:19 MiniPC systemd[931]: container-caddy.service: Main process exited, code=exited, status=126/n/a
+░░ Subject: Unit process exited
+░░ Defined-By: systemd
+░░ Support: https://forum.manjaro.org/c/support
+░░ 
+░░ An ExecStart= process belonging to unit UNIT has exited.
+░░ 
+░░ The process' exit code is 'exited' and its exit status is 126.
+11月 18 13:00:19 MiniPC systemd[931]: container-caddy.service: Failed with result 'exit-code'.
+░░ Subject: Unit failed
+░░ Defined-By: systemd
+░░ Support: https://forum.manjaro.org/c/support
+░░ 
+░░ The unit UNIT has entered the 'failed' state with result 'exit-code'.
+11月 18 13:00:19 MiniPC systemd[931]: Failed to start Podman container-caddy.service.
+░░ Subject: UNIT 单元已失败
+░░ Defined-By: systemd
+░░ Support: https://forum.manjaro.org/c/support
+░░ 
+░░ UNIT 单元已失败。
+░░ 
+░░ 结果为“failed”。
+11月 18 13:00:20 MiniPC systemd[931]: container-caddy.service: Scheduled restart job, restart counter is at 2.
+░░ Subject: Automatic restarting of a unit has been scheduled
+░░ Defined-By: systemd
+░░ Support: https://forum.manjaro.org/c/support
+░░ 
+░░ Automatic restarting of the unit UNIT has been scheduled, as the result for
+░░ the configured Restart= setting for the unit.
+11月 18 13:00:20 MiniPC systemd[931]: Starting Podman container-caddy.service...
+░░ Subject: UNIT 单元已开始启动
+░░ Defined-By: systemd
+░░ Support: https://forum.manjaro.org/c/support
+░░ 
+░░ UNIT 单元已开始启动。
+11月 18 13:00:20 MiniPC podman[108047]: 2025-11-18 13:00:20.214183478 +0800 CST m=+0.028266085 container create 9061c04bff91d27ece73edb380c4d0901efad05eb66889be8b977d05fe03b3d7 (image=ghcr.io/daiaji/caddy:latest, name=caddy, io.buildah.version=1.33.7, org.opencontainers.image.title=Caddy, org.opencontainers.image.documentation=https://caddyserver.com/docs, org.opencontainers.image.url=https://caddyserver.com, org.opencontainers.image.vendor=Light Code Labs, org.opencontainers.image.version=v2.10.2, org.opencontainers.image.licenses=Apache-2.0, io.containers.autoupdate=image, PODMAN_SYSTEMD_UNIT=container-caddy.service, org.opencontainers.image.description=a powerful, enterprise-ready, open source web server with automatic HTTPS written in Go, org.opencontainers.image.source=https://github.com/caddyserver/caddy-docker)
+11月 18 13:00:20 MiniPC pasta[108064]: Failed to bind port 8080 (Address already in use) for option '-t 8080-8081:8080-8081'
+11月 18 13:00:20 MiniPC podman[108047]: 2025-11-18 13:00:20.238803934 +0800 CST m=+0.052886541 container remove 9061c04bff91d27ece73edb380c4d0901efad05eb66889be8b977d05fe03b3d7 (image=ghcr.io/daiaji/caddy:latest, name=caddy, org.opencontainers.image.source=https://github.com/caddyserver/caddy-docker, org.opencontainers.image.title=Caddy, io.buildah.version=1.33.7, org.opencontainers.image.url=https://caddyserver.com, io.containers.autoupdate=image, org.opencontainers.image.description=a powerful, enterprise-ready, open source web server with automatic HTTPS written in Go, org.opencontainers.image.vendor=Light Code Labs, org.opencontainers.image.version=v2.10.2, PODMAN_SYSTEMD_UNIT=container-caddy.service, org.opencontainers.image.documentation=https://caddyserver.com/docs, org.opencontainers.image.licenses=Apache-2.0)
+11月 18 13:00:20 MiniPC podman[108047]: 2025-11-18 13:00:20.199550055 +0800 CST m=+0.013632672 image pull 3ce0d809f0d8e74e1a318b1a7a0e1fa2bc431c02f1baafc69855c4e74b755b59 ghcr.io/daiaji/caddy:latest
+11月 18 13:00:20 MiniPC podman[108047]: Error: pasta failed with exit code 1:
+11月 18 13:00:20 MiniPC podman[108047]: Failed to bind port 8080 (Address already in use) for option '-t 8080-8081:8080-8081'
+11月 18 13:00:20 MiniPC systemd[931]: container-caddy.service: Main process exited, code=exited, status=126/n/a
+░░ Subject: Unit process exited
+░░ Defined-By: systemd
+░░ Support: https://forum.manjaro.org/c/support
+░░ 
+░░ An ExecStart= process belonging to unit UNIT has exited.
+░░ 
+░░ The process' exit code is 'exited' and its exit status is 126.
+11月 18 13:00:20 MiniPC systemd[931]: container-caddy.service: Failed with result 'exit-code'.
+░░ Subject: Unit failed
+░░ Defined-By: systemd
+░░ Support: https://forum.manjaro.org/c/support
+░░ 
+░░ The unit UNIT has entered the 'failed' state with result 'exit-code'.
+11月 18 13:00:20 MiniPC systemd[931]: Failed to start Podman container-caddy.service.
+░░ Subject: UNIT 单元已失败
+░░ Defined-By: systemd
+░░ Support: https://forum.manjaro.org/c/support
+░░ 
+░░ UNIT 单元已失败。
+░░ 
+░░ 结果为“failed”。
+11月 18 13:00:20 MiniPC systemd[931]: container-caddy.service: Scheduled restart job, restart counter is at 3.
+░░ Subject: Automatic restarting of a unit has been scheduled
+░░ Defined-By: systemd
+░░ Support: https://forum.manjaro.org/c/support
+░░ 
+░░ Automatic restarting of the unit UNIT has been scheduled, as the result for
+░░ the configured Restart= setting for the unit.
+11月 18 13:00:20 MiniPC systemd[931]: Starting Podman container-caddy.service...
+░░ Subject: UNIT 单元已开始启动
+░░ Defined-By: systemd
+░░ Support: https://forum.manjaro.org/c/support
+░░ 
+░░ UNIT 单元已开始启动。
+11月 18 13:00:20 MiniPC podman[108088]: 2025-11-18 13:00:20.768559046 +0800 CST m=+0.085351232 container create 5e2477ab447c82139dd3d5c3083501a3837e4d6553131dd5a33742fd534ce5ae (image=ghcr.io/daiaji/caddy:latest, name=caddy, io.buildah.version=1.33.7, io.containers.autoupdate=image, org.opencontainers.image.url=https://caddyserver.com, org.opencontainers.image.source=https://github.com/caddyserver/caddy-docker, PODMAN_SYSTEMD_UNIT=container-caddy.service, org.opencontainers.image.licenses=Apache-2.0, org.opencontainers.image.vendor=Light Code Labs, org.opencontainers.image.title=Caddy, org.opencontainers.image.description=a powerful, enterprise-ready, open source web server with automatic HTTPS written in Go, org.opencontainers.image.documentation=https://caddyserver.com/docs, org.opencontainers.image.version=v2.10.2)
+11月 18 13:00:20 MiniPC pasta[108105]: Failed to bind port 8080 (Address already in use) for option '-t 8080-8081:8080-8081'
+11月 18 13:00:20 MiniPC podman[108088]: 2025-11-18 13:00:20.696072517 +0800 CST m=+0.012864703 image pull 3ce0d809f0d8e74e1a318b1a7a0e1fa2bc431c02f1baafc69855c4e74b755b59 ghcr.io/daiaji/caddy:latest
+11月 18 13:00:20 MiniPC podman[108088]: 2025-11-18 13:00:20.797872028 +0800 CST m=+0.114664204 container remove 5e2477ab447c82139dd3d5c3083501a3837e4d6553131dd5a33742fd534ce5ae (image=ghcr.io/daiaji/caddy:latest, name=caddy, org.opencontainers.image.url=https://caddyserver.com, org.opencontainers.image.version=v2.10.2, org.opencontainers.image.description=a powerful, enterprise-ready, open source web server with automatic HTTPS written in Go, org.opencontainers.image.title=Caddy, org.opencontainers.image.vendor=Light Code Labs, org.opencontainers.image.documentation=https://caddyserver.com/docs, org.opencontainers.image.licenses=Apache-2.0, org.opencontainers.image.source=https://github.com/caddyserver/caddy-docker, PODMAN_SYSTEMD_UNIT=container-caddy.service, io.buildah.version=1.33.7, io.containers.autoupdate=image)
+11月 18 13:00:20 MiniPC podman[108088]: Error: pasta failed with exit code 1:
+11月 18 13:00:20 MiniPC podman[108088]: Failed to bind port 8080 (Address already in use) for option '-t 8080-8081:8080-8081'
+11月 18 13:00:20 MiniPC systemd[931]: container-caddy.service: Main process exited, code=exited, status=126/n/a
+░░ Subject: Unit process exited
+░░ Defined-By: systemd
+░░ Support: https://forum.manjaro.org/c/support
+░░ 
+░░ An ExecStart= process belonging to unit UNIT has exited.
+░░ 
+░░ The process' exit code is 'exited' and its exit status is 126.
+11月 18 13:00:20 MiniPC systemd[931]: container-caddy.service: Failed with result 'exit-code'.
+░░ Subject: Unit failed
+░░ Defined-By: systemd
+░░ Support: https://forum.manjaro.org/c/support
+░░ 
+░░ The unit UNIT has entered the 'failed' state with result 'exit-code'.
+11月 18 13:00:20 MiniPC systemd[931]: Failed to start Podman container-caddy.service.
+░░ Subject: UNIT 单元已失败
+░░ Defined-By: systemd
+░░ Support: https://forum.manjaro.org/c/support
+░░ 
+░░ UNIT 单元已失败。
+░░ 
+░░ 结果为“failed”。
+11月 18 13:00:21 MiniPC systemd[931]: container-caddy.service: Scheduled restart job, restart counter is at 4.
+░░ Subject: Automatic restarting of a unit has been scheduled
+░░ Defined-By: systemd
+░░ Support: https://forum.manjaro.org/c/support
+░░ 
+░░ Automatic restarting of the unit UNIT has been scheduled, as the result for
+░░ the configured Restart= setting for the unit.
+11月 18 13:00:21 MiniPC systemd[931]: Starting Podman container-caddy.service...
+░░ Subject: UNIT 单元已开始启动
+░░ Defined-By: systemd
+░░ Support: https://forum.manjaro.org/c/support
+░░ 
+░░ UNIT 单元已开始启动。
+11月 18 13:00:21 MiniPC podman[108130]: 2025-11-18 13:00:21.182667708 +0800 CST m=+0.013195742 image pull 3ce0d809f0d8e74e1a318b1a7a0e1fa2bc431c02f1baafc69855c4e74b755b59 ghcr.io/daiaji/caddy:latest
+11月 18 13:00:21 MiniPC podman[108130]: 2025-11-18 13:00:21.339658758 +0800 CST m=+0.170186792 container create 6cf0059d9c02e68babf2e37f30d408a6ecc404b4dbf5d16486026f096cdee0fc (image=ghcr.io/daiaji/caddy:latest, name=caddy, org.opencontainers.image.source=https://github.com/caddyserver/caddy-docker, org.opencontainers.image.description=a powerful, enterprise-ready, open source web server with automatic HTTPS written in Go, org.opencontainers.image.licenses=Apache-2.0, io.buildah.version=1.33.7, io.containers.autoupdate=image, org.opencontainers.image.vendor=Light Code Labs, org.opencontainers.image.documentation=https://caddyserver.com/docs, PODMAN_SYSTEMD_UNIT=container-caddy.service, org.opencontainers.image.title=Caddy, org.opencontainers.image.url=https://caddyserver.com, org.opencontainers.image.version=v2.10.2)
+11月 18 13:00:21 MiniPC pasta[108147]: Failed to bind port 8080 (Address already in use) for option '-t 8080-8081:8080-8081'
+11月 18 13:00:21 MiniPC podman[108130]: 2025-11-18 13:00:21.368690876 +0800 CST m=+0.199218910 container remove 6cf0059d9c02e68babf2e37f30d408a6ecc404b4dbf5d16486026f096cdee0fc (image=ghcr.io/daiaji/caddy:latest, name=caddy, org.opencontainers.image.version=v2.10.2, org.opencontainers.image.documentation=https://caddyserver.com/docs, org.opencontainers.image.source=https://github.com/caddyserver/caddy-docker, PODMAN_SYSTEMD_UNIT=container-caddy.service, org.opencontainers.image.title=Caddy, org.opencontainers.image.description=a powerful, enterprise-ready, open source web server with automatic HTTPS written in Go, org.opencontainers.image.url=https://caddyserver.com, io.buildah.version=1.33.7, io.containers.autoupdate=image, org.opencontainers.image.licenses=Apache-2.0, org.opencontainers.image.vendor=Light Code Labs)
+11月 18 13:00:21 MiniPC podman[108130]: Error: pasta failed with exit code 1:
+11月 18 13:00:21 MiniPC podman[108130]: Failed to bind port 8080 (Address already in use) for option '-t 8080-8081:8080-8081'
+11月 18 13:00:21 MiniPC systemd[931]: container-caddy.service: Main process exited, code=exited, status=126/n/a
+░░ Subject: Unit process exited
+░░ Defined-By: systemd
+░░ Support: https://forum.manjaro.org/c/support
+░░ 
+░░ An ExecStart= process belonging to unit UNIT has exited.
+░░ 
+░░ The process' exit code is 'exited' and its exit status is 126.
+11月 18 13:00:21 MiniPC systemd[931]: container-caddy.service: Failed with result 'exit-code'.
+░░ Subject: Unit failed
+░░ Defined-By: systemd
+░░ Support: https://forum.manjaro.org/c/support
+░░ 
+░░ The unit UNIT has entered the 'failed' state with result 'exit-code'.
+11月 18 13:00:21 MiniPC systemd[931]: Failed to start Podman container-caddy.service.
+░░ Subject: UNIT 单元已失败
+░░ Defined-By: systemd
+░░ Support: https://forum.manjaro.org/c/support
+░░ 
+░░ UNIT 单元已失败。
+░░ 
+░░ 结果为“failed”。
+11月 18 13:00:21 MiniPC systemd[931]: container-caddy.service: Scheduled restart job, restart counter is at 5.
+░░ Subject: Automatic restarting of a unit has been scheduled
+░░ Defined-By: systemd
+░░ Support: https://forum.manjaro.org/c/support
+░░ 
+░░ Automatic restarting of the unit UNIT has been scheduled, as the result for
+░░ the configured Restart= setting for the unit.
+11月 18 13:00:21 MiniPC systemd[931]: container-caddy.service: Start request repeated too quickly.
+11月 18 13:00:21 MiniPC systemd[931]: container-caddy.service: Failed with result 'exit-code'.
+░░ Subject: Unit failed
+░░ Defined-By: systemd
+░░ Support: https://forum.manjaro.org/c/support
+░░ 
+░░ The unit UNIT has entered the 'failed' state with result 'exit-code'.
+11月 18 13:00:21 MiniPC systemd[931]: Failed to start Podman container-caddy.service.
+░░ Subject: UNIT 单元已失败
+░░ Defined-By: systemd
+░░ Support: https://forum.manjaro.org/c/support
+░░ 
+░░ UNIT 单元已失败。
+░░ 
+░░ 结果为“failed”。

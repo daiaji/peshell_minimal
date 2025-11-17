@@ -1,24 +1,25 @@
 -- scripts/prelude.lua
--- PEShell 自动预加载脚本 (v5.0 - DLL Model & Simplified Dispatcher)
+-- PEShell 自动预加载脚本 (v5.3 - Self-Contained & Optimized)
 
--- 1. 设置模块加载路径 (由 C++ 注入 PESHELL_EXE_DIR)
+-- 1. 设置模块加载路径
 do
+    -- PESHELL_EXE_DIR 由 C++ 宿主设置为 <package_root>/bin
     local exe_dir = assert(_G.PESHELL_EXE_DIR, "CRITICAL: PESHELL_EXE_DIR not set by host application.")
-    local lib_dir = exe_dir .. '/lib'
     
-    -- 设置 Lua 脚本搜索路径
+    -- 在自包含模型中，所有 Lua 模块都在 bin 目录的兄弟目录 share/ 下
+    -- 注意：在 Lua 中，'..' 用于路径操作时代表上级目录
+    local share_dir = exe_dir .. '/../share'
+
+    -- package.path 用于搜索 .lua 文件 (我们自己的模块和依赖项都在这里)
     package.path = table.concat({
-        exe_dir .. '/scripts/?.lua',
-        exe_dir .. '/scripts/?/init.lua',
-        lib_dir .. '/?.lua',
-        lib_dir .. '/?/init.lua',
+        share_dir .. '/lua/5.1/?.lua',
+        share_dir .. '/lua/5.1/?/init.lua',
         package.path
     }, ';')
     
-    -- 设置 C 模块 (DLL) 搜索路径
+    -- package.cpath 用于搜索 .dll 文件 (所有 C 模块都已被 CI 流程统一放到 bin 目录)
     package.cpath = table.concat({
-        exe_dir .. '/?.dll',      -- 在 exe 同级目录查找 (proc_utils.dll, lfs.dll, etc.)
-        lib_dir .. '/?.dll',      -- 在 lib 目录查找 (未来可能的 C 模块)
+        exe_dir .. '/?.dll',
         package.cpath
     }, ';')
 end
@@ -53,10 +54,21 @@ end
 -- 5. 扫描并加载所有 pesh-api 模块
 local function load_api_modules()
     log.info("Prelude: Scanning for API modules...")
-    -- 注意：这里的 lfs 是动态加载的 lfs.dll
     local lfs = require("lfs")
-    local api_path = _G.PESHELL_EXE_DIR .. "/scripts/pesh-api"
     
+    -- [[ 核心优化 ]]
+    -- 在自包含结构中，我们可以直接构建 pesh-api 目录的路径。
+    -- `debug.getinfo(1,"S").source` 获取当前文件的路径信息。
+    local current_script_path = debug.getinfo(1,"S").source:match("^@?(.*)")
+    -- 从文件路径中提取目录路径
+    local current_dir = current_script_path:match("(.*[/\\])")
+    local api_path = current_dir .. "pesh-api"
+    
+    if lfs.attributes(api_path, "mode") ~= "directory" then
+        log.error("Prelude: Could not find 'pesh-api' directory at '", api_path, "'.")
+        return
+    end
+
     for file in lfs.dir(api_path) do
         if file:match("%.lua$") then
             local module_name = file:gsub("%.lua$", "")
@@ -113,8 +125,12 @@ RegisterCommand("main", function(args)
 end)
 
 RegisterCommand("shutdown", function()
-    local shutdown_script = _G.PESHELL_EXE_DIR .. "/scripts/shutdown.lua"
-    return dofile(shutdown_script)
+    local shutdown_script_path = package.searchpath("shutdown", package.path)
+    if not shutdown_script_path then
+        log.error("Could not find shutdown.lua")
+        return 1
+    end
+    return dofile(shutdown_script_path)
 end)
 
 -- 7. 核心命令分发器 (简化版)
@@ -122,7 +138,7 @@ function _G.DispatchCommand(...)
     local cmd_args = {...}
     
     local help_message = [[
-PEShell v5.0 (DLL Model) - A modular WinPE automation engine.
+PEShell v5.5 (Self-Contained Model) - A modular WinPE automation engine.
 
 Usage: peshell.exe <command> [arguments...]
 
@@ -150,11 +166,8 @@ Available Commands:
         log.error("Unknown command '", cmd_name, "'. Use 'help' to see available commands.")
         return 1
     end
-
-    -- 构造一个简单的 args 表，包含所有剩余参数
+    
     local args_table = { cmd = cmd_args }
-    -- (为了兼容性，可以解析简单的 -w, -h 等标志)
-    -- 此处为简化模型，所有参数都在 args_table.cmd 中
     
     local status, retcode = pcall(command_handler, args_table)
     
