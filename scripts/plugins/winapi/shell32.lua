@@ -1,13 +1,23 @@
--- scripts/pesh-api/winapi/shell32.lua
+-- scripts/plugins/winapi/shell32.lua
+-- FFI 定义组：shell32 API，并提供相关的高级封装
 
-local ffi = require("pesh-api.ffi")
-local C = ffi.C
-local shell32 = ffi.load("shell32")
+local pesh = _G.pesh
+local ffi = pesh.ffi
 
--- [优化] 引入 LuaJIT 扩展的 table.new，用于高效地创建预分配大小的表
+-- [[ 关键修正 ]] 显式加载依赖的插件
+local kernel32 = pesh.plugin.load("winapi.kernel32")
 local tnew = require("table.new")
 
 local M = {}
+
+-- 定义 C 函数原型
+ffi.define("winapi.shell32", [[
+    wchar_t** CommandLineToArgvW(const wchar_t* lpCmdLine, int* pNumArgs);
+    /* LocalFree is in kernel32, so it's not defined here */
+]])
+
+-- 加载并缓存库命名空间
+local shell32 = ffi.library("shell32")
 
 ---
 -- 将命令行字符串解析为参数数组，类似于 C 语言的 argv。
@@ -24,17 +34,14 @@ function M.commandline_to_argv(cmd_line)
     end
 
     local argc = argc_ptr[0]
-    -- [优化] 使用 tnew 预先分配表的数组部分，避免循环中的内存重分配
     local result = tnew(argc, 0)
     
-    -- FFI 返回的指针数组需要手动遍历
     for i = 0, argc - 1 do
-        -- [优化] 对于预分配的表，直接使用索引赋值比 table.insert 更快
         result[i + 1] = ffi.from_wide(argv_w[i])
     end
 
-    -- 必须手动释放由 CommandLineToArgvW 分配的内存
-    C.LocalFree(argv_w)
+    -- 调用正确的 LocalFree (位于 kernel32 模块)
+    kernel32.LocalFree(argv_w)
     
     return result
 end

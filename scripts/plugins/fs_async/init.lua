@@ -1,8 +1,8 @@
--- scripts/pesh-api/fs_async.lua
--- 提供真正的异步文件系统操作 (v2.0 - 完整版)
+-- scripts/plugins/fs_async/init.lua
+-- 异步文件系统操作插件
 
-local log = require("pesh-api.log")
-local native = pesh_native
+local log = _G.log
+local native = _G.pesh_native
 local M = {}
 
 ---
@@ -25,6 +25,5 @@ function M.read_file_async(co, filepath)
     -- 将耗时操作交给 C++ 线程池
     native.dispatch_worker("file_read_worker", filepath, co)
 end
-
 
 return M

@@ -1,18 +1,20 @@
--- scripts/pesh-api/async.lua (v4.0 - Coroutine Pool Re-integrated)
--- 本模块提供核心的 await 函数，并将异步任务的执行委托给协程池。
+-- scripts/plugins/async/init.lua
+-- 异步执行插件，提供 await 和 async.run
 
+local pesh = _G.pesh
 local M = {}
-local native = pesh_native
-local log = require("pesh-api.log")
 
--- [关键] 引入协程池模块
-local coro_pool = require("pesh-api.coro_pool")
+-- 依赖
+local log = _G.log
+local native = _G.pesh_native
+local coro_pool = pesh.plugin.load("coro_pool")
 
--- 全局的 await 函数 (此部分保持不变)
+-- 全局的 await 函数
 function _G.await(future_provider_func, ...)
-    local co = coroutine.running()
-    if not co then
-        error("await() must be called from within a coroutine.", 2)
+    -- [利用 Lua 5.2 特性] coroutine.running() 返回两个值
+    local co, is_main = coroutine.running()
+    if not co or is_main then
+        error("await() must be called from within a coroutine, not the main thread.", 2)
     end
 
     -- 执行 future_provider_func，它会启动一个后台任务
@@ -31,11 +33,9 @@ function _G.await(future_provider_func, ...)
     return resumed_data_or_error
 end
 
--- [关键] 启动一个异步任务，现在使用协程池来执行
--- 直接将 M.run 指向 coro_pool.run，实现功能委托
+-- 启动一个异步任务，使用协程池来执行
 M.run = coro_pool.run
-log.info("Async module initialized with coroutine pooling.")
-
+log.info("Async plugin initialized with coroutine pooling.")
 
 -- 带消息循环的阻塞式休眠（保留用于简单场景）
 function M.sleep_async(ms)

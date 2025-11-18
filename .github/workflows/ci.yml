@@ -23,7 +23,8 @@ jobs:
       - name: Get LuaJIT submodule commit hash
         id: luajit-hash
         run: |
-          $submodule_hash = (git submodule status vendor/luajit2).Trim().Split(' ')[0]
+          # [修改] 路径已更新为 vendor/luajit
+          $submodule_hash = (git submodule status vendor/luajit).Trim().Split(' ')[0]
           echo "hash=$submodule_hash" >> $env:GITHUB_OUTPUT
         shell: pwsh
 
@@ -32,7 +33,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: .lua
-          key: msvc-luajit-v2-${{ runner.os }}-${{ steps.luajit-hash.outputs.hash }}
+          key: msvc-luajit-v3-${{ runner.os }}-${{ steps.luajit-hash.outputs.hash }}
 
       - name: Configure CMake for Release Build
         run: cmake -S . -B build -G "Ninja" -DCMAKE_BUILD_TYPE=Release
@@ -55,8 +56,12 @@ jobs:
           $package_dir = New-Item -ItemType Directory -Path "${{ github.workspace }}/package" -Force
           $bin_dir      = New-Item -ItemType Directory -Path "$package_dir/bin"
           $lua_dir      = New-Item -ItemType Directory -Path "$package_dir/share/lua/5.1" -Force
+          
+          # [[ 新增 ]] 创建专门存放纯 Lua 第三方库的目录
+          $lib_dir      = New-Item -ItemType Directory -Path "$lua_dir/lib" -Force
 
           # 2. 编译我们自己的 C++ 代码 (使用 Release 配置)
+          # 注意：CMakeLists.txt 已修改，不再编译 proc_utils C++ 库
           cmake --build build --config Release
           
           # 3. 将我们自己的产物复制到最终目录
@@ -65,6 +70,12 @@ jobs:
 
           # 4. 将我们自己的 Lua 脚本复制到最终目录
           Copy-Item -Path "scripts/*" -Destination $lua_dir -Recurse
+          
+          # [[ 新增 ]] 复制 proc_utils_ffi.lua 到 lib 目录
+          # 这是这一步的核心变更，实现零编译依赖
+          Write-Host "Installing proc_utils_ffi.lua to lib directory..."
+          Copy-Item -Path "vendor/proc_utils/proc_utils_ffi.lua" -Destination "$lib_dir"
+
           Copy-Item -Path "start_peshell_main.bat" -Destination $package_dir
 
           # 5. 使用 LuaRocks 将 *依赖项* 安装到最终目录中
@@ -73,7 +84,9 @@ jobs:
           
           # 6. 将所有依赖的 .dll 文件（如 lfs.dll）统一移动到 bin 目录
           Write-Host "Consolidating all DLLs into the bin directory..."
-          Get-ChildItem -Path "$package_dir/lib" -Filter "*.dll" -Recurse | Move-Item -Destination $bin_dir -Force
+          if (Test-Path "$package_dir/lib") {
+              Get-ChildItem -Path "$package_dir/lib" -Filter "*.dll" -Recurse | Move-Item -Destination $bin_dir -Force
+          }
           
           # 7. 清理打包过程中的中间产物
           Write-Host "Cleaning up the package..."
@@ -100,9 +113,6 @@ jobs:
           tree /F .
         shell: cmd
 
-      # ========================= [[ 新增步骤：测试前清理 ]] =========================
-      # 目的：确保每次测试都在一个绝对干净的环境中开始，防止之前步骤的任何
-      # 意外产物影响测试结果的确定性。
       - name: Clean up logs before test run
         run: |
           $log_dir = "${{ steps.assemble.outputs.package_path }}/logs"
@@ -111,7 +121,6 @@ jobs:
             Remove-Item -Path $log_dir -Recurse -Force
           }
         shell: pwsh
-      # ===========================================================================
 
       - name: Run Lua Unit & Integration Tests
         working-directory: ${{ steps.assemble.outputs.package_path }}
@@ -120,16 +129,12 @@ jobs:
           .\bin\peshell.exe run .\share\lua\5.1\test_suite.lua
         shell: pwsh
 
-      # ========================= [[ 现有步骤：测试后清理 ]] =========================
-      # 目的：确保最终上传的构建产物 (Artifact) 是纯净的，不包含任何测试过程中
-      # 产生的日志文件。
       - name: Clean up logs created by tests
-        if: always() # 无论测试是否成功，都必须执行此步骤
+        if: always()
         run: |
           Write-Host "Removing logs directory generated during test run to ensure a clean artifact..."
           Remove-Item -Path "${{ steps.assemble.outputs.package_path }}/logs" -Recurse -Force -ErrorAction SilentlyContinue
         shell: pwsh
-      # ===========================================================================
 
       - name: Upload Build Artifact
         uses: actions/upload-artifact@v4
