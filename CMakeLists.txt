@@ -60,7 +60,7 @@ target_include_directories(luajit INTERFACE ${LUA_INSTALL_DIR}/include)
 target_link_libraries(luajit INTERFACE ${LUAJIT_LIBRARY})
 
 # --- 主目标定义 ---
-add_executable(peshell src/main.cpp)
+add_executable(peshell src/main.cpp src/logging.cpp)
 
 if(MSVC)
   set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreadedDLL" CACHE STRING "MSVC Runtime Library" FORCE)
@@ -86,9 +86,7 @@ target_link_libraries(peshell PRIVATE
     winmm.lib
 )
 
-# [[ 核心修正 ]]
 # 添加一个构建后事件，将 lua51.dll 复制到 peshell.exe 所在的目录 (build/bin)
-# 这样在 CI 流程中，我们可以直接从 build/bin 复制所有运行时需要的文件。
 add_custom_command(TARGET peshell POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
     ${LUAJIT_DLL}
@@ -97,10 +95,9 @@ add_custom_command(TARGET peshell POST_BUILD
 )
 
 # ==================================================================
-#  安装规则 (Installation Rules) - 简化版
+#  安装规则 (Installation Rules)
 # ==================================================================
-# 这部分现在主要是为了本地开发方便，CI流程不再直接依赖它。
-# 它会创建一个与我们手动组装的 package 目录类似的结构。
+# 这部分定义了当执行 "cmake --install" 时，哪些文件应该被复制到哪里。
 
 # 安装可执行文件和所有运行时动态库到 <prefix>/bin
 install(TARGETS peshell proc_utils spdlog
@@ -114,6 +111,9 @@ install(FILES ${LUAJIT_DLL} DESTINATION bin)
 
 # 安装所有 Lua 脚本
 install(DIRECTORY scripts/ DESTINATION share/lua/5.1)
+
+# 安装配置文件目录
+install(DIRECTORY config/ DESTINATION .)
 
 # 安装启动脚本
 install(FILES start_peshell_main.bat DESTINATION .)

@@ -1,26 +1,20 @@
-/*****************************************************************
- *                    !! IMPORTANT !!                            *
- *   WINDOWS HEADERS MUST BE INCLUDED FIRST to avoid conflicts.    *
- *****************************************************************/
+#include "logging.h" // 引入我们自己的日志模块
+
 // clang-format off
+#if defined(_WIN32)
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
-#include <timeapi.h> // For timeBeginPeriod/timeEndPeriod
+#endif
+#include <timeapi.h>
 // clang-format on
 
-/*****************************************************************
- *                 Third-party Library Headers                   *
- *****************************************************************/
 #include <ctpl_stl.h>
-#include <spdlog/sinks/basic_file_sink.h>
-#include <spdlog/sinks/stdout_color_sinks.h>
+#include <lua.hpp>
 #include <spdlog/spdlog.h>
 
-#include <chrono>
 #include <filesystem>
-#include <fstream>
+#include <fstream> // 确保包含 <fstream> 以支持 std::ifstream
 #include <iostream>
-#include <lua.hpp>
 #include <map>
 #include <mutex>
 #include <queue>
@@ -44,7 +38,7 @@ struct AsyncTaskResult
     lua_State*  co;
     bool        success;
     std::string data;
-    std::string error;
+    std::string error_msg;
 };
 
 struct WaitOperation
@@ -64,7 +58,6 @@ ctpl::thread_pool              g_thread_pool(std::thread::hardware_concurrency()
 static volatile bool           g_handle_list_dirty = true;
 
 // 函数前置声明
-void         InitializeLogger(const std::string& log_dir);
 lua_State*   InitializeLuaState(const std::string& package_root_dir);
 std::wstring Utf8ToWide(const std::string& str);
 
@@ -97,7 +90,8 @@ namespace LuaBindings
             lua_State*  co_to_wake = lua_tothread(L, 4);
 
             g_thread_pool.push([src_path, dst_path, co_to_wake](int id) {
-                spdlog::debug("WORKER (thread {}): Starting async copy from '{}' to '{}'", id, src_path, dst_path);
+                (void)id; // 消除 "unreferenced parameter" 警告
+                spdlog::debug("WORKER: Starting async copy from '{}' to '{}'", src_path, dst_path);
                 BOOL copy_success = CopyFileW(Utf8ToWide(src_path).c_str(), Utf8ToWide(dst_path).c_str(), FALSE);
 
                 std::lock_guard<std::mutex> lock(g_completed_tasks_mutex);
@@ -107,8 +101,7 @@ namespace LuaBindings
                 }
                 else
                 {
-                    DWORD       error_code = GetLastError();
-                    std::string err_msg    = "Copy failed with Win32 error code: " + std::to_string(error_code);
+                    std::string err_msg = "Copy failed with Win32 error code: " + std::to_string(GetLastError());
                     g_completed_tasks.push({co_to_wake, false, "", err_msg});
                 }
                 SetEvent(g_hTaskCompletedEvent);
@@ -120,7 +113,8 @@ namespace LuaBindings
             lua_State*  co_to_wake = lua_tothread(L, 3);
 
             g_thread_pool.push([filepath, co_to_wake](int id) {
-                spdlog::debug("WORKER (thread {}): Starting async read from '{}'", id, filepath);
+                (void)id;
+                spdlog::debug("WORKER: Starting async read from '{}'", filepath);
 
                 std::ifstream file(Utf8ToWide(filepath), std::ios::binary | std::ios::ate);
                 if (file)
@@ -135,14 +129,14 @@ namespace LuaBindings
                     }
                     else
                     {
-                        std::string                 err_msg = "File read failed for: " + filepath;
+                        std::string err_msg = "File read failed for: " + filepath;
                         std::lock_guard<std::mutex> lock(g_completed_tasks_mutex);
                         g_completed_tasks.push({co_to_wake, false, "", err_msg});
                     }
                 }
                 else
                 {
-                    std::string                 err_msg = "File open failed for: " + filepath;
+                    std::string err_msg = "File open failed for: " + filepath;
                     std::lock_guard<std::mutex> lock(g_completed_tasks_mutex);
                     g_completed_tasks.push({co_to_wake, false, "", err_msg});
                 }
@@ -166,7 +160,8 @@ namespace LuaBindings
             HANDLE hProcess = handle_obj->h;
 
             g_thread_pool.push([hProcess, co_to_wake](int id) {
-                spdlog::debug("WORKER (thread {}): Starting async wait for process handle {:p}", id, (void*)hProcess);
+                (void)id;
+                spdlog::debug("WORKER: Starting async wait for process handle {:p}", (void*)hProcess);
                 DWORD waitResult = WaitForSingleObject(hProcess, INFINITE);
 
                 std::lock_guard<std::mutex> lock(g_completed_tasks_mutex);
@@ -176,8 +171,7 @@ namespace LuaBindings
                 }
                 else
                 {
-                    DWORD       error_code = GetLastError();
-                    std::string err_msg = "WaitForSingleObject failed with Win32 error: " + std::to_string(error_code);
+                    std::string err_msg = "WaitForSingleObject failed with Win32 error: " + std::to_string(GetLastError());
                     g_completed_tasks.push({co_to_wake, false, "", err_msg});
                 }
                 SetEvent(g_hTaskCompletedEvent);
@@ -341,9 +335,6 @@ lua_State* InitializeLuaState(const std::string& package_root_dir)
     luaL_setfuncs(L, pesh_native_lib, 0);
     lua_setglobal(L, "pesh_native");
 
-    // [[ 核心修正 ]]
-    // 将 EXE 所在的目录（即 bin 目录）传递给 Lua，而不是整个包的根目录。
-    // prelude.lua 将基于此进行相对路径计算。
     std::filesystem::path exe_dir = std::filesystem::path(package_root_dir) / "bin";
     lua_pushstring(L, exe_dir.string().c_str());
     lua_setglobal(L, "PESHELL_EXE_DIR");
@@ -355,32 +346,30 @@ int main(int argc, char* argv[])
 {
     timeBeginPeriod(1);
 
+    DWORD pid = GetCurrentProcessId();
+
     char exe_path_buf[MAX_PATH];
     GetModuleFileNameA(NULL, exe_path_buf, MAX_PATH);
-    std::filesystem::path exe_fs_path(exe_path_buf);
-    std::filesystem::path bin_dir = exe_fs_path.parent_path();
-    // [[ 核心修正 ]]
-    // 包的根目录现在是 bin 目录的父目录。
-    std::filesystem::path package_root = bin_dir.parent_path();
+    std::filesystem::path package_root = std::filesystem::path(exe_path_buf).parent_path().parent_path();
     std::string           package_root_str = package_root.string();
 
-    InitializeLogger(package_root_str);
-    spdlog::info("PEShell v5.5 (Self-Contained Package Model) starting...");
+    InitializeLogger(package_root_str, pid, argc, argv);
+    
+    spdlog::info("PEShell v5.9 (Configurable Logging) starting...");
     spdlog::info("Package Root: {}", package_root_str);
 
     lua_State* L = InitializeLuaState(package_root_str);
-    if (!L) return 1;
+    if (!L) { ShutdownLogger(); return 1; }
 
     g_hTaskCompletedEvent = CreateEvent(NULL, FALSE, FALSE, NULL);
     if (!g_hTaskCompletedEvent)
     {
         spdlog::critical("Failed to create task completion event.");
         lua_close(L);
+        ShutdownLogger();
         return 1;
     }
 
-    // [[ 核心修正 ]]
-    // 直接构建出自包含结构下的 prelude.lua 路径，不再需要任何回退逻辑。
     std::string prelude_path = (package_root / "share" / "lua" / "5.1" / "prelude.lua").string();
     
     spdlog::info("Attempting to load prelude from: {}", prelude_path);
@@ -390,6 +379,7 @@ int main(int argc, char* argv[])
         spdlog::critical("Failed to load prelude script '{}': {}", prelude_path, error_msg);
         MessageBoxA(NULL, error_msg, "PEShell Critical Error", MB_ICONERROR | MB_OK);
         lua_close(L);
+        ShutdownLogger();
         return 1;
     }
 
@@ -467,7 +457,7 @@ int main(int argc, char* argv[])
                         else
                         {
                             lua_pushboolean(result.co, false);
-                            lua_pushstring(result.co, result.error.c_str());
+                            lua_pushstring(result.co, result.error_msg.c_str());
                             resume_status = lua_resume(result.co, 2);
                         }
 
@@ -512,7 +502,9 @@ int main(int argc, char* argv[])
                         {
                             if (op_to_resume.handles[i] == signaled_handle)
                             {
-                                signaled_idx = i + 1;
+                                // ==================== [核心修正] 修复编译器警告 C4267 ====================
+                                // 显式地将 size_t 转换为 int，消除数据截断的可能性警告
+                                signaled_idx = static_cast<int>(i) + 1;
                                 break;
                             }
                         }
@@ -550,44 +542,18 @@ int main(int argc, char* argv[])
         spdlog::info("Scheduler loop is terminating due to WM_QUIT or an error.");
     }
 
-    g_thread_pool.stop(true);
-    CloseHandle(g_hTaskCompletedEvent);
-    timeEndPeriod(1);
-    lua_close(L);
     spdlog::info("PEShell shutting down with exit code {}.", return_code);
+    
+    g_thread_pool.stop(true);
+    if(g_hTaskCompletedEvent) CloseHandle(g_hTaskCompletedEvent);
+    if(L) lua_close(L);
+    
+    ShutdownLogger();
+    timeEndPeriod(1);
     return return_code;
 }
 
-void InitializeLogger(const std::string& package_root_dir)
-{
-    try
-    {
-        std::vector<spdlog::sink_ptr> sinks;
-        auto                          console_sink = std::make_shared<spdlog::sinks::stdout_color_sink_mt>();
-        console_sink->set_level(spdlog::level::trace);
-        sinks.push_back(console_sink);
-        
-        std::filesystem::path log_path = std::filesystem::path(package_root_dir) / "logs";
-        std::filesystem::create_directory(log_path);
-        auto file_sink =
-            std::make_shared<spdlog::sinks::basic_file_sink_mt>((log_path / "peshell_latest.log").string(), true);
-        file_sink->set_level(spdlog::level::trace);
-        sinks.push_back(file_sink);
-
-        auto logger = std::make_shared<spdlog::logger>("peshell", begin(sinks), end(sinks));
-        logger->set_level(spdlog::level::trace);
-        logger->flush_on(spdlog::level::trace);
-
-        spdlog::set_default_logger(logger);
-    }
-    catch (const spdlog::spdlog_ex& ex)
-    {
-        std::cerr << "Log initialization failed: " << ex.what() << std::endl;
-    }
-}
-
-std::wstring Utf8ToWide(const std::string& str)
-{
+std::wstring Utf8ToWide(const std::string& str) {
     if (str.empty()) return std::wstring();
     int size_needed = MultiByteToWideChar(CP_UTF8, 0, &str[0], (int)str.size(), NULL, 0);
     std::wstring wstrTo(size_needed, 0);

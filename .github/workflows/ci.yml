@@ -75,14 +75,10 @@ jobs:
           Write-Host "Consolidating all DLLs into the bin directory..."
           Get-ChildItem -Path "$package_dir/lib" -Filter "*.dll" -Recurse | Move-Item -Destination $bin_dir -Force
           
-          # --- [[ 核心修正：添加清理步骤 ]] ---
+          # 7. 清理打包过程中的中间产物
           Write-Host "Cleaning up the package..."
-
-          # 7. [新增] 移除 bin 目录中所有非必需的调试和中间文件
           Write-Host "  -> Removing debug and intermediate files from bin..."
           Remove-Item -Path "$bin_dir/*.pdb", "$bin_dir/*.ilk" -ErrorAction SilentlyContinue
-
-          # 8. [新增] 彻底删除整个 lib 目录，因为它现在已经没用了
           Write-Host "  -> Removing temporary luarocks lib directory..."
           Remove-Item -Path "$package_dir/lib" -Recurse -Force
 
@@ -104,19 +100,36 @@ jobs:
           tree /F .
         shell: cmd
 
-      - name: Run Lua Unit & Integration Tests
+      # ========================= [[ 新增步骤：测试前清理 ]] =========================
+      # 目的：确保每次测试都在一个绝对干净的环境中开始，防止之前步骤的任何
+      # 意外产物影响测试结果的确定性。
+      - name: Clean up logs before test run
         run: |
-          cd ${{ steps.assemble.outputs.package_path }}
+          $log_dir = "${{ steps.assemble.outputs.package_path }}/logs"
+          if (Test-Path $log_dir) {
+            Write-Host "Found and removing existing logs directory before tests: $log_dir"
+            Remove-Item -Path $log_dir -Recurse -Force
+          }
+        shell: pwsh
+      # ===========================================================================
+
+      - name: Run Lua Unit & Integration Tests
+        working-directory: ${{ steps.assemble.outputs.package_path }}
+        run: |
+          # 工作目录已设置为 package 目录, 可以直接执行
           .\bin\peshell.exe run .\share\lua\5.1\test_suite.lua
         shell: pwsh
 
-      # --- [[ 核心修正：测试后再次清理 ]] ---
+      # ========================= [[ 现有步骤：测试后清理 ]] =========================
+      # 目的：确保最终上传的构建产物 (Artifact) 是纯净的，不包含任何测试过程中
+      # 产生的日志文件。
       - name: Clean up logs created by tests
-        if: always() # 无论测试是否成功，都执行清理
+        if: always() # 无论测试是否成功，都必须执行此步骤
         run: |
-          Write-Host "Removing logs directory generated during test run..."
+          Write-Host "Removing logs directory generated during test run to ensure a clean artifact..."
           Remove-Item -Path "${{ steps.assemble.outputs.package_path }}/logs" -Recurse -Force -ErrorAction SilentlyContinue
         shell: pwsh
+      # ===========================================================================
 
       - name: Upload Build Artifact
         uses: actions/upload-artifact@v4
