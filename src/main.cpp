@@ -9,12 +9,12 @@
 // clang-format on
 
 #include <ctpl_stl.h>
-#include <lua.hpp>
 #include <spdlog/spdlog.h>
 
 #include <filesystem>
-#include <fstream> // 确保包含 <fstream> 以支持 std::ifstream
+#include <fstream> 
 #include <iostream>
+#include <lua.hpp>
 #include <map>
 #include <mutex>
 #include <queue>
@@ -48,14 +48,14 @@ struct WaitOperation
 };
 
 // 全局状态
-std::queue<AsyncTaskResult>    g_completed_tasks;
-std::mutex                     g_completed_tasks_mutex;
-HANDLE                         g_hTaskCompletedEvent = NULL;
-std::vector<HANDLE>            g_wait_handles_cache;
+std::queue<AsyncTaskResult>     g_completed_tasks;
+std::mutex                      g_completed_tasks_mutex;
+HANDLE                          g_hTaskCompletedEvent = NULL;
+std::vector<HANDLE>             g_wait_handles_cache;
 std::map<HANDLE, WaitOperation> g_wait_operations;
-std::mutex                     g_wait_operations_mutex;
-ctpl::thread_pool              g_thread_pool(std::thread::hardware_concurrency());
-static volatile bool           g_handle_list_dirty = true;
+std::mutex                      g_wait_operations_mutex;
+ctpl::thread_pool               g_thread_pool(std::thread::hardware_concurrency());
+static volatile bool            g_handle_list_dirty = true;
 
 // 函数前置声明
 lua_State*   InitializeLuaState(const std::string& package_root_dir);
@@ -90,7 +90,7 @@ namespace LuaBindings
             lua_State*  co_to_wake = lua_tothread(L, 4);
 
             g_thread_pool.push([src_path, dst_path, co_to_wake](int id) {
-                (void)id; // 消除 "unreferenced parameter" 警告
+                (void)id; 
                 spdlog::debug("WORKER: Starting async copy from '{}' to '{}'", src_path, dst_path);
                 BOOL copy_success = CopyFileW(Utf8ToWide(src_path).c_str(), Utf8ToWide(dst_path).c_str(), FALSE);
 
@@ -129,14 +129,14 @@ namespace LuaBindings
                     }
                     else
                     {
-                        std::string err_msg = "File read failed for: " + filepath;
+                        std::string                 err_msg = "File read failed for: " + filepath;
                         std::lock_guard<std::mutex> lock(g_completed_tasks_mutex);
                         g_completed_tasks.push({co_to_wake, false, "", err_msg});
                     }
                 }
                 else
                 {
-                    std::string err_msg = "File open failed for: " + filepath;
+                    std::string                 err_msg = "File open failed for: " + filepath;
                     std::lock_guard<std::mutex> lock(g_completed_tasks_mutex);
                     g_completed_tasks.push({co_to_wake, false, "", err_msg});
                 }
@@ -145,7 +145,8 @@ namespace LuaBindings
         }
         else if (strcmp(worker_name, "process_wait_worker") == 0)
         {
-            if (lua_type(L, 2) != LUA_TCDATA) return luaL_error(L, "Arg 2 must be a process handle (cdata)");
+            if (lua_type(L, 2) != LUA_TCDATA)
+                return luaL_error(L, "Arg 2 must be a process handle (cdata)");
             lua_State* co_to_wake = lua_tothread(L, 3);
             auto*      handle_obj = static_cast<SafeHandle*>(const_cast<void*>(lua_topointer(L, 2)));
 
@@ -171,20 +172,40 @@ namespace LuaBindings
                 }
                 else
                 {
-                    std::string err_msg = "WaitForSingleObject failed with Win32 error: " + std::to_string(GetLastError());
+                    std::string err_msg =
+                        "WaitForSingleObject failed with Win32 error: " + std::to_string(GetLastError());
                     g_completed_tasks.push({co_to_wake, false, "", err_msg});
                 }
                 SetEvent(g_hTaskCompletedEvent);
             });
         }
+        // [[ 核心修正 ]] 新增 Timer Worker，用于真正的异步睡眠
+        else if (strcmp(worker_name, "timer_worker") == 0)
+        {
+            int duration_ms = (int)luaL_checkinteger(L, 2);
+            lua_State* co_to_wake = lua_tothread(L, 3);
+
+            g_thread_pool.push([duration_ms, co_to_wake](int id) {
+                (void)id;
+                // 在后台线程中睡眠，不阻塞 Lua VM，也不阻塞主线程的消息循环
+                Sleep(duration_ms);
+
+                std::lock_guard<std::mutex> lock(g_completed_tasks_mutex);
+                g_completed_tasks.push({co_to_wake, true, "Timer expired", ""});
+                SetEvent(g_hTaskCompletedEvent);
+            });
+        }
+        
         return 0;
     }
 
     static int pesh_wait_for_multiple_objects_async(lua_State* L)
     {
         lua_State* co = lua_tothread(L, 1);
-        if (!co) return luaL_error(L, "Arg 1 must be a coroutine");
-        if (!lua_istable(L, 2)) return luaL_error(L, "Arg 2 must be a table of FFI SafeHandles");
+        if (!co)
+            return luaL_error(L, "Arg 1 must be a coroutine");
+        if (!lua_istable(L, 2))
+            return luaL_error(L, "Arg 2 must be a table of FFI SafeHandles");
 
         WaitOperation op;
         op.co = co;
@@ -230,7 +251,8 @@ namespace LuaBindings
 
     static int pesh_wait_for_multiple_objects_blocking(lua_State* L)
     {
-        if (!lua_istable(L, 1)) return luaL_error(L, "Arg 1 must be a table of FFI SafeHandles");
+        if (!lua_istable(L, 1))
+            return luaL_error(L, "Arg 1 must be a table of FFI SafeHandles");
         int   timeout_ms = (int)luaL_optinteger(L, 2, -1);
         DWORD timeout_dw = (timeout_ms < 0) ? INFINITE : (DWORD)timeout_ms;
 
@@ -277,11 +299,11 @@ namespace LuaBindings
         }
     }
 
-
     static int pesh_reset_thread(lua_State* L)
     {
 #ifdef HAVE_LUA_RESETTHREAD
-        if (!lua_isthread(L, 1)) return luaL_argerror(L, 1, "thread expected");
+        if (!lua_isthread(L, 1))
+            return luaL_argerror(L, 1, "thread expected");
         lua_State* co = lua_tothread(L, 1);
         lua_resetthread(L, co);
         lua_pushboolean(L, 1);
@@ -292,11 +314,11 @@ namespace LuaBindings
         return 1;
     }
 
-#define DEFINE_LOG_FUNC(name, level)                                     \
-    static int pesh_log_##name(lua_State* L)                             \
-    {                                                                    \
-        spdlog::level(luaL_checkstring(L, 1)); \
-        return 0;                                                        \
+#define DEFINE_LOG_FUNC(name, level)                                                                                   \
+    static int pesh_log_##name(lua_State* L)                                                                           \
+    {                                                                                                                  \
+        spdlog::level(luaL_checkstring(L, 1));                                                                         \
+        return 0;                                                                                                      \
     }
 
     DEFINE_LOG_FUNC(trace, trace)
@@ -350,16 +372,20 @@ int main(int argc, char* argv[])
 
     char exe_path_buf[MAX_PATH];
     GetModuleFileNameA(NULL, exe_path_buf, MAX_PATH);
-    std::filesystem::path package_root = std::filesystem::path(exe_path_buf).parent_path().parent_path();
+    std::filesystem::path package_root     = std::filesystem::path(exe_path_buf).parent_path().parent_path();
     std::string           package_root_str = package_root.string();
 
     InitializeLogger(package_root_str, pid, argc, argv);
-    
-    spdlog::info("PEShell v5.9 (Configurable Logging) starting...");
+
+    spdlog::info("PEShell v6.0 (Async Fix) starting...");
     spdlog::info("Package Root: {}", package_root_str);
 
     lua_State* L = InitializeLuaState(package_root_str);
-    if (!L) { ShutdownLogger(); return 1; }
+    if (!L)
+    {
+        ShutdownLogger();
+        return 1;
+    }
 
     g_hTaskCompletedEvent = CreateEvent(NULL, FALSE, FALSE, NULL);
     if (!g_hTaskCompletedEvent)
@@ -371,7 +397,7 @@ int main(int argc, char* argv[])
     }
 
     std::string prelude_path = (package_root / "share" / "lua" / "5.1" / "prelude.lua").string();
-    
+
     spdlog::info("Attempting to load prelude from: {}", prelude_path);
     if (luaL_dofile(L, prelude_path.c_str()) != LUA_OK)
     {
@@ -420,11 +446,12 @@ int main(int argc, char* argv[])
                     g_wait_handles_cache.push_back(handle);
                 }
                 g_handle_list_dirty = false;
-                spdlog::trace("SCHEDULER: Refreshed wait list, now waiting on {} handles.", g_wait_handles_cache.size());
+                spdlog::trace("SCHEDULER: Refreshed wait list, now waiting on {} handles.",
+                              g_wait_handles_cache.size());
             }
 
-            DWORD wait_result = MsgWaitForMultipleObjects(
-                static_cast<DWORD>(g_wait_handles_cache.size()), g_wait_handles_cache.data(), FALSE, INFINITE, QS_ALLINPUT);
+            DWORD wait_result = MsgWaitForMultipleObjects(static_cast<DWORD>(g_wait_handles_cache.size()),
+                                                          g_wait_handles_cache.data(), FALSE, INFINITE, QS_ALLINPUT);
 
             if (wait_result >= WAIT_OBJECT_0 && wait_result < (WAIT_OBJECT_0 + g_wait_handles_cache.size()))
             {
@@ -463,8 +490,7 @@ int main(int argc, char* argv[])
 
                         if (resume_status != LUA_YIELD && resume_status != LUA_OK)
                         {
-                            spdlog::error("Error resuming coroutine after async task: {}",
-                                          lua_tostring(result.co, -1));
+                            spdlog::error("Error resuming coroutine after async task: {}", lua_tostring(result.co, -1));
                         }
                     }
                 }
@@ -502,8 +528,6 @@ int main(int argc, char* argv[])
                         {
                             if (op_to_resume.handles[i] == signaled_handle)
                             {
-                                // ==================== [核心修正] 修复编译器警告 C4267 ====================
-                                // 显式地将 size_t 转换为 int，消除数据截断的可能性警告
                                 signaled_idx = static_cast<int>(i) + 1;
                                 break;
                             }
@@ -533,8 +557,7 @@ int main(int argc, char* argv[])
             }
             else
             {
-                spdlog::error("MsgWaitForMultipleObjects returned an unexpected value: {}. Error code: {}",
-                              wait_result,
+                spdlog::error("MsgWaitForMultipleObjects returned an unexpected value: {}. Error code: {}", wait_result,
                               GetLastError());
                 break;
             }
@@ -543,19 +566,23 @@ int main(int argc, char* argv[])
     }
 
     spdlog::info("PEShell shutting down with exit code {}.", return_code);
-    
+
     g_thread_pool.stop(true);
-    if(g_hTaskCompletedEvent) CloseHandle(g_hTaskCompletedEvent);
-    if(L) lua_close(L);
-    
+    if (g_hTaskCompletedEvent)
+        CloseHandle(g_hTaskCompletedEvent);
+    if (L)
+        lua_close(L);
+
     ShutdownLogger();
     timeEndPeriod(1);
     return return_code;
 }
 
-std::wstring Utf8ToWide(const std::string& str) {
-    if (str.empty()) return std::wstring();
-    int size_needed = MultiByteToWideChar(CP_UTF8, 0, &str[0], (int)str.size(), NULL, 0);
+std::wstring Utf8ToWide(const std::string& str)
+{
+    if (str.empty())
+        return std::wstring();
+    int          size_needed = MultiByteToWideChar(CP_UTF8, 0, &str[0], (int)str.size(), NULL, 0);
     std::wstring wstrTo(size_needed, 0);
     MultiByteToWideChar(CP_UTF8, 0, &str[0], (int)str.size(), &wstrTo[0], size_needed);
     return wstrTo;

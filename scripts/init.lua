@@ -1,26 +1,25 @@
 -- scripts/init.lua
--- PEShell PE 初始化主脚本
--- 职责：协调所有必要的初始化步骤，启动并守护桌面环境。
+-- PEShell PE 初始化主脚本 (适配插件系统 & Native ProcUtils)
+-- v6.2 - Final Clean Version
 
--- 引入所有需要的 API 模块
-local log = require("pesh-api.log")
-local process = require("pesh-api.process")
-local pe = require("pesh-api.pe")
-local shell = require("pesh-api.shell")
+-- prelude.lua has already loaded the core `pesh` object and `log`
+local log = _G.log
+local pesh = _G.pesh
 
--- ==================== [新增调试代码] ====================
--- 生成一个唯一的调用ID，由时间和随机数组成，确保每次运行都不同
+-- 1. Explicitly load the plugins this script depends on
+local process = pesh.plugin.load("process")
+local pe = pesh.plugin.load("pe")
+local shell = pesh.plugin.load("shell")
+
+-- 2. Generate a unique call ID for tracing this specific run
 local unique_call_id = string.format("call-%d-%d", os.time(), math.random(10000, 99999))
 log.info("INIT.LUA: Starting initialization sequence with Unique Call ID: [", unique_call_id, "]")
--- ======================================================
 
--- 设置控制台输出为 UTF-8，以正确显示日志
+-- 3. Set console output to UTF-8
 os.execute("chcp 65001 > nul")
-log.info("PEShell v3.1 Initializer Script Started.")
+log.info("PEShell v6.2 Initializer Script Started.")
 
--- ------------------------------------------------------------------
--- 步骤 1: 执行 wpeinit.exe (硬件初始化)
--- ------------------------------------------------------------------
+-- 4. Step 1: Execute wpeinit.exe (Hardware Initialization)
 log.info("Step 1: Running wpeinit for hardware initialization...")
 local windir = os.getenv("WinDir")
 if not windir then
@@ -34,38 +33,34 @@ log.debug("wpeinit command line: ", wpeinit_cmd)
 local wpeinit_proc = process.exec_async({ command = wpeinit_cmd })
 if wpeinit_proc then
     log.info("wpeinit.exe started, waiting for it to finish...")
-    wpeinit_proc:wait_for_exit_blocking(-1)
-    wpeinit_proc:close_handle()
+    
+    -- [[ 核心修复 ]] 使用 wait_for_exit_pump 替代直接调用 wait_for_exit
+    -- 这确保了在等待期间，主线程的消息循环继续运转，防止窗口冻结。
+    -- -1 表示无限等待。
+    process.wait_for_exit_pump(wpeinit_proc, -1)
+    
+    -- 显式置空，利用 GC 自动回收句柄 (RAII)
+    wpeinit_proc = nil 
+    
     log.info("wpeinit.exe finished.")
 else
     log.warn("Failed to start or wait for wpeinit.exe. Hardware may not function correctly.")
 end
 
-
--- ------------------------------------------------------------------
--- 步骤 2: 初始化 PE 用户环境
--- ------------------------------------------------------------------
+-- 5. Step 2: Initialize PE User Environment
 log.info("Step 2: Initializing PE user session environment (creating folders)...")
 pe.initialize()
 log.info("PE user environment initialized.")
 
-
--- ------------------------------------------------------------------
--- 步骤 3: 启动并守护系统外壳 (explorer.exe)
--- ------------------------------------------------------------------
+-- 6. Step 3: Start and guard the system shell (explorer.exe)
 log.info("Step 3: Locking system shell (explorer.exe)...")
 local explorer_path = windir .. "\\explorer.exe"
 
--- ==================== [修改调试代码] ====================
--- 将包含 unique_call_id 的 options 表传递给 lock_shell
 log.info("INIT.LUA: Invoking shell.lock_shell with Unique Call ID: [", unique_call_id, "]")
 shell.lock_shell(explorer_path, {
-    -- 这里的 takeover 是默认策略，我们显式写出来以便理解
     strategy = "takeover", 
-    -- 传入我们的追踪ID
     unique_call_id = unique_call_id
 })
--- ======================================================
 
 log.info("Shell guardian has been dispatched to the background.")
 log.info("Initialization script has completed its tasks. The C++ host will now remain active in guardian mode.")

@@ -1,7 +1,7 @@
--- scripts/pesh-api/coro_pool.lua
--- 一个基于 OpenResty LuaJIT lua_resetthread 的可靠协程池 (v2.0 - Final)
+-- scripts/plugins/coro_pool/init.lua
+-- 一个基于 OpenResty LuaJIT lua_resetthread 的可靠协程池
 
-local log = require("pesh-api.log")
+local log = _G.log
 local native = _G.pesh_native
 local M = {}
 
@@ -23,7 +23,6 @@ local function worker_func(func, ...)
         log.error("Coroutine Pool: Error in running task:\n", tostring(err))
     end
 end
-
 
 function M.get()
     if not can_reset then
@@ -59,15 +58,15 @@ function M.release(co)
 end
 
 function M.run(func, ...)
-    local args = {...}
-    -- ==================== [新增调试代码] ====================
-    -- 尝试从参数中提取我们的追踪ID
+    -- [利用 Lua 5.2 特性] 使用 table.pack 替代 {...}，以安全地处理 nil 参数
+    local args = table.pack(...)
     local call_id = "ID_NOT_FOUND"
-    if args[2] and type(args[2]) == "table" and args[2].unique_call_id then
+    
+    -- 在访问 args[2] 之前，先检查参数数量
+    if args.n >= 2 and type(args[2]) == "table" and args[2].unique_call_id then
         call_id = args[2].unique_call_id
     end
     log.debug("CORO_POOL: run() called. Will execute task for Call ID: [", call_id, "]")
-    -- ======================================================
 
     local wrapped_func = function(...)
         worker_func(func, ...)
@@ -76,12 +75,11 @@ function M.run(func, ...)
 
     local co_to_run = M.get()
     log.trace("CORO_POOL: Resuming coroutine ", tostring(co_to_run), " for Call ID: [", call_id, "]")
-    local status_run, err_run = coroutine.resume(co_to_run, wrapped_func, ...)
+    -- [利用 Lua 5.2 特性] 使用 table.unpack 将所有参数（包括nil）正确传递给 resume
+    local status_run, err_run = coroutine.resume(co_to_run, wrapped_func, table.unpack(args, 1, args.n))
 
     if not status_run then
-        -- ==================== [修改调试代码] ====================
         log.error("CORO_POOL: Failed to resume worker for Call ID [", call_id, "]: ", tostring(err_run))
-        -- ======================================================
         M.release(co_to_run)
     end
 end

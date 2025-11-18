@@ -21,7 +21,6 @@ jobs:
       contents: write
 
     steps:
-      # ... [前面 Checkout, Setup MSVC, Cache LuaJIT 等步骤保持不变] ...
       - name: Checkout repository with submodules
         uses: actions/checkout@v4
         with:
@@ -29,13 +28,12 @@ jobs:
 
       - name: Setup MSVC environment
         uses: ilammy/msvc-dev-cmd@v1
-        
-      # ... (省略与 ci.yml 重复的缓存、LuaJIT安装、LuaRocks安装等步骤) ...
 
       - name: Get LuaJIT submodule commit hash
         id: luajit-hash
         run: |
-          $submodule_hash = (git submodule status vendor/luajit2).Trim().Split(' ')[0]
+          # [修改] 路径已更新为 vendor/luajit
+          $submodule_hash = (git submodule status vendor/luajit).Trim().Split(' ')[0]
           echo "hash=$submodule_hash" >> $env:GITHUB_OUTPUT
         shell: pwsh
 

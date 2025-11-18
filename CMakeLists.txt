@@ -21,18 +21,22 @@ add_subdirectory(${VENDOR_DIR}/spdlog)
 
 add_library(ctpl INTERFACE)
 target_include_directories(ctpl INTERFACE ${VENDOR_DIR}/ctpl)
-add_subdirectory(${VENDOR_DIR}/proc_utils)
+
+# [REMOVED] 移除了 C++ 版本的 proc_utils，现在使用 LuaJIT FFI 实现
+# add_subdirectory(${VENDOR_DIR}/proc_utils)
 
 # --- LuaJIT 构建与安装逻辑 ---
-set(LUAJIT_SOURCE_DIR ${VENDOR_DIR}/luajit2/src)
+# [修改] 路径已更新为 luajit
+set(LUAJIT_SOURCE_DIR ${VENDOR_DIR}/luajit/src)
 set(LUA_INSTALL_DIR ${CMAKE_SOURCE_DIR}/.lua) 
 set(LUAJIT_LIBRARY ${LUA_INSTALL_DIR}/lib/lua51.lib)
 set(LUAJIT_DLL ${LUA_INSTALL_DIR}/bin/lua51.dll)
 
 add_custom_target(luajit_compile
-    COMMAND cmd.exe /c "msvcbuild.bat"
+    # [[ 核心修改 ]] 在执行 msvcbuild.bat 之前，设置 CL 环境变量来注入编译宏
+    COMMAND cmd.exe /c "set CL=/DLUAJIT_ENABLE_LUA52COMPAT && msvcbuild.bat"
     WORKING_DIRECTORY ${LUAJIT_SOURCE_DIR}
-    COMMENT "Building LuaJIT with MSVC..."
+    COMMENT "Building LuaJIT with MSVC (Lua 5.2/5.3 Compat Enabled)..."
 )
 
 add_custom_target(install_luajit
@@ -74,7 +78,7 @@ if(MSVC)
 endif()
 
 target_link_libraries(peshell PRIVATE 
-    proc_utils 
+    # [REMOVED] proc_utils 
     luajit 
     spdlog::spdlog 
     ctpl 
@@ -100,7 +104,7 @@ add_custom_command(TARGET peshell POST_BUILD
 # 这部分定义了当执行 "cmake --install" 时，哪些文件应该被复制到哪里。
 
 # 安装可执行文件和所有运行时动态库到 <prefix>/bin
-install(TARGETS peshell proc_utils spdlog
+install(TARGETS peshell spdlog
         RUNTIME DESTINATION bin
         LIBRARY DESTINATION bin  # 将 .dll 也安装到 bin
         ARCHIVE DESTINATION lib
