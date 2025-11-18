@@ -1,5 +1,4 @@
--- scripts/pesh-api/shell.lua
--- 封装外壳 (Shell) 的加载与守护逻辑 (v9.0 - SafeHandle & Await Fix)
+-- peshell_minimal/scripts/pesh-api/shell.lua (最终修复版)
 
 local M = {}
 local process = require("pesh-api.process")
@@ -14,35 +13,41 @@ local SHUTDOWN_EVENT_NAME = "Global\\PEShell_Guardian_Shutdown_Event"
 
 local function guardian_coroutine(shell_command, options)
     options = options or {}
+    local call_id = options.unique_call_id or "UNKNOWN_ID"
+
     local strategy = options.strategy or "takeover"
     local ready_event_name = options.ready_event_name
     local respawn_event_name = options.respawn_event_name
 
     local shell_name = process.get_process_name_from_command(shell_command)
     if not shell_name then
-        log.critical("GUARDIAN: CRITICAL - Could not determine process name.")
+        log.critical("GUARDIAN [", call_id, "]: CRITICAL - Could not determine process name.")
         return
     end
 
-    log.info("GUARDIAN: Coroutine started for '", shell_name, "' with strategy '", strategy, "'.")
+    log.info("GUARDIAN [", call_id, "]: Coroutine started for '", shell_name, "' with strategy '", strategy, "'.")
     
     local shutdown_event, err = k32.create_event(SHUTDOWN_EVENT_NAME, true, false)
     if not shutdown_event then
-        log.critical("GUARDIAN: CRITICAL - Failed to create shutdown event: ", err)
+        log.critical("GUARDIAN [", call_id, "]: CRITICAL - Failed to create shutdown event: ", err)
         return
     end
 
+    -- ==================== [核心修正] ====================
+    -- 将 takeover 清理逻辑移到循环的外部，确保它只在协程启动时执行一次！
     if strategy == "takeover" then
-        log.info("GUARDIAN (takeover): Performing pre-launch cleanup for '", shell_name, "'...")
+        log.info("GUARDIAN (takeover) [", call_id, "]: Performing pre-launch cleanup for '", shell_name, "'...")
         process.kill_all_by_name(shell_name)
-        async.sleep_async(500)
+        async.sleep_async(500) -- 给予系统足够的时间来完全终止进程
     end
+    -- ====================================================
 
     local is_first_launch = true
     local should_run = true
     while should_run do
         local shell_proc = nil
 
+        -- 在循环内部，不再需要 takeover 判断
         if strategy == "adopt" and is_first_launch then
             shell_proc = process.open_by_name(shell_name)
         end
@@ -61,40 +66,38 @@ local function guardian_coroutine(shell_command, options)
         end
         
         if shell_proc and shell_proc.handle then
-            log.info("GUARDIAN: Monitoring shell process PID: ", shell_proc.pid)
+            log.info("GUARDIAN [", call_id, "]: Monitoring shell process PID: ", shell_proc.pid)
             
-            -- 使用 SafeHandle 结构
             local handle_obj_shell = ffi.new("SafeHandle_t", { h = shell_proc.handle.h })
             local handle_obj_shutdown = ffi.new("SafeHandle_t", { h = shutdown_event.h })
 
-            -- FFI 无法直接传递包含指针的结构体到 C，我们需要传递指针的指针
             local handles_to_wait = { handle_obj_shell, handle_obj_shutdown }
             local signaled_index, wait_err = await(native.wait_for_multiple_objects, handles_to_wait, false, -1)
             
             if signaled_index == 1 then
-                log.warn("GUARDIAN: Shell process (PID: ", shell_proc.pid, ") terminated.")
-                if strategy ~= "once" then log.info("Will restart.") end
+                log.warn("GUARDIAN [", call_id, "]: Shell process (PID: ", shell_proc.pid, ") terminated.")
+                if strategy ~= "once" then log.info("GUARDIAN [", call_id, "]: Will restart.") end
             elseif signaled_index == 2 then
-                log.info("GUARDIAN: Shutdown event received. Exiting guardian loop.")
+                log.info("GUARDIAN [", call_id, "]: Shutdown event received. Exiting guardian loop.")
                 should_run = false
             else
-                log.error("GUARDIAN: Wait failed (", tostring(wait_err), "). Exiting loop.")
+                log.error("GUARDIAN [", call_id, "]: Wait failed (", tostring(wait_err), "). Exiting loop.")
                 should_run = false
             end
             
             shell_proc:close_handle()
             
         elseif should_run then
-            log.error("GUARDIAN: Failed to start or adopt shell process! Retrying...")
+            log.error("GUARDIAN [", call_id, "]: Failed to start or adopt shell process! Retrying...")
             async.sleep_async(2000)
         end
         
         is_first_launch = false
     end
 
-    log.info("GUARDIAN: Cleaning up before exit...")
+    log.info("GUARDIAN [", call_id, "]: Cleaning up before exit...")
     process.kill_all_by_name(shell_name)
-    log.info("GUARDIAN: Guardian cleanup complete.")
+    log.info("GUARDIAN [", call_id, "]: Guardian cleanup complete.")
     u32.post_quit_message(0)
 end
 
@@ -103,7 +106,10 @@ function M.lock_shell(shell_command, options)
         log.error("Error in lock_shell: shell_command is required.")
         return false
     end
-    log.info("SHELL: Dispatching background guardian for '", shell_command, "'...")
+    
+    local call_id = options and options.unique_call_id or "UNSPECIFIED"
+    log.info("SHELL.LUA: Dispatching background guardian via async.run. Call ID: [", call_id, "]")
+
     async.run(guardian_coroutine, shell_command, options)
     return true
 end
@@ -128,7 +134,6 @@ M.__commands = {
         if not args.cmd or #args.cmd == 0 then
             log.error("shel: Missing shell command line."); return 1;
         end
-        -- 适配新的简单 args 结构
         local cmd_line = table.concat(args.cmd, " ")
         local adopt_mode = false
         if args.cmd[1] == "--adopt" then
@@ -139,7 +144,7 @@ M.__commands = {
         
         local shel_options = { strategy = adopt_mode and "adopt" or "takeover" }
         M.lock_shell(cmd_line, shel_options)
-        return 0 -- main 模式下返回 0 以进入消息循环
+        return 0
     end
 }
 
