@@ -1,5 +1,5 @@
 -- scripts/test_suite.lua
--- PEShell API Test Suite (v15.1 - Fix strict boolean assertions)
+-- PEShell API Test Suite (v15.2 - Fix strict boolean assertions using EvalTo)
 
 local lu = require("luaunit")
 local log = _G.log
@@ -40,25 +40,27 @@ function TestFileSystem:testCopyAndMove()
     f:close()
     
     -- Test Copy
+    -- fs.copy returns boolean true on success
     lu.assertTrue(fs.copy(src, dst), "fs.copy failed")
     
-    -- [FIX] fs.exists (pl.path.exists) returns path string (truthy) or nil.
-    -- luaunit.assertTrue checks for strict true, so we must use assertNotIsNil.
-    lu.assertNotIsNil(fs.exists(dst), "Destination file not created")
+    -- [FIX] fs.exists (pl.path.exists) returns path string (truthy) or false/nil.
+    -- Use assertEvalToTrue to accept both true and string.
+    lu.assertEvalToTrue(fs.exists(dst), "Destination file not created")
     
     -- Test Move
     local dst2 = path.join(temp_dir, "file_moved.txt")
     lu.assertTrue(fs.move(dst, dst2), "fs.move failed")
     
-    -- [FIX] fs.exists returns nil when missing. Use assertIsNil.
-    lu.assertIsNil(fs.exists(dst), "Original file still exists after move")
-    lu.assertNotIsNil(fs.exists(dst2), "Moved file not found")
+    -- [FIX] fs.exists returns false (not nil) when missing in some Penlight versions.
+    -- Use assertEvalToFalse to accept both nil and false.
+    lu.assertEvalToFalse(fs.exists(dst), "Original file still exists after move")
+    lu.assertEvalToTrue(fs.exists(dst2), "Moved file not found")
     
     -- Test Delete
     lu.assertTrue(fs.delete(dst2), "fs.delete failed")
     
-    -- [FIX] Use assertIsNil
-    lu.assertIsNil(fs.exists(dst2), "Deleted file still exists")
+    -- [FIX] Use assertEvalToFalse
+    lu.assertEvalToFalse(fs.exists(dst2), "Deleted file still exists")
 end
 
 -- PE API Tests
@@ -68,8 +70,8 @@ function TestPeApi:testInitialize()
     local mock_user = path.join(temp_dir, "MockUser")
     k32.SetEnvironmentVariableW(ffi.to_wide("USERPROFILE"), ffi.to_wide(mock_user))
     pe.initialize()
-    -- path.isdir returns boolean (true/false), so assertTrue is fine here
-    lu.assertTrue(path.isdir(path.join(mock_user, "Desktop")))
+    -- path.isdir returns boolean (true/false) usually, but EvalToTrue is safer
+    lu.assertEvalToTrue(path.isdir(path.join(mock_user, "Desktop")))
     k32.SetEnvironmentVariableW(ffi.to_wide("USERPROFILE"), nil)
 end
 
@@ -165,7 +167,7 @@ function TestShellGuardian:testGuardianLifecycle()
     
     async.sleep_blocking(2000)
     
-    lu.assertIsNil(process.find(target_name), "Target should be gone after shutdown")
+    lu.assertEvalToFalse(process.find(target_name), "Target should be gone after shutdown")
     
     if g_proc:is_valid() then g_proc:terminate(0) end
 end
