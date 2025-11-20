@@ -1,5 +1,5 @@
 -- scripts/init.lua
--- PEShell PE 初始化主脚本 (适配插件系统)
+-- PEShell PE 初始化主脚本 (适配插件系统 & Native ProcUtils)
 
 -- prelude.lua has already loaded the core `pesh` object and `log`
 local log = _G.log
@@ -16,7 +16,7 @@ log.info("INIT.LUA: Starting initialization sequence with Unique Call ID: [", un
 
 -- 3. Set console output to UTF-8
 os.execute("chcp 65001 > nul")
-log.info("PEShell v6.0 Initializer Script Started.")
+log.info("PEShell v6.1 Initializer Script Started.")
 
 -- 4. Step 1: Execute wpeinit.exe (Hardware Initialization)
 log.info("Step 1: Running wpeinit for hardware initialization...")
@@ -32,8 +32,16 @@ log.debug("wpeinit command line: ", wpeinit_cmd)
 local wpeinit_proc = process.exec_async({ command = wpeinit_cmd })
 if wpeinit_proc then
     log.info("wpeinit.exe started, waiting for it to finish...")
-    wpeinit_proc:wait_for_exit_blocking(-1)
-    wpeinit_proc:close_handle()
+    
+    -- [FIX] 使用新 API wait_for_exit 代替 wait_for_exit_blocking
+    -- -1 表示无限等待
+    wpeinit_proc:wait_for_exit(-1)
+    
+    -- [FIX] 移除 close_handle 调用
+    -- 新的 proc_utils_ffi 基于 FFI GC 自动管理句柄 (RAII)。
+    -- 显式将其置为 nil 有助于让垃圾回收器更快回收句柄，但不是必须的。
+    wpeinit_proc = nil 
+    
     log.info("wpeinit.exe finished.")
 else
     log.warn("Failed to start or wait for wpeinit.exe. Hardware may not function correctly.")
