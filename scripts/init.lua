@@ -1,5 +1,6 @@
 -- scripts/init.lua
 -- PEShell PE 初始化主脚本 (适配插件系统 & Native ProcUtils)
+-- v6.2 - Final Clean Version
 
 -- prelude.lua has already loaded the core `pesh` object and `log`
 local log = _G.log
@@ -16,7 +17,7 @@ log.info("INIT.LUA: Starting initialization sequence with Unique Call ID: [", un
 
 -- 3. Set console output to UTF-8
 os.execute("chcp 65001 > nul")
-log.info("PEShell v6.1 Initializer Script Started.")
+log.info("PEShell v6.2 Initializer Script Started.")
 
 -- 4. Step 1: Execute wpeinit.exe (Hardware Initialization)
 log.info("Step 1: Running wpeinit for hardware initialization...")

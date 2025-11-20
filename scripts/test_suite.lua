@@ -1,5 +1,5 @@
 -- scripts/test_suite.lua
--- PEShell API Test Suite (v14.0 - Native proc_utils OOP)
+-- PEShell API Test Suite (v14.1 - Final Clean Version)
 
 local lu = require("luaunit")
 local log = _G.log
@@ -12,6 +12,8 @@ local dir = require("pl.dir")
 local process = pesh.plugin.load("process")
 local pe = pesh.plugin.load("pe")
 local k32 = pesh.plugin.load("winapi.kernel32")
+-- [API 更新] 需要加载 async 插件以使用 sleep_blocking
+local async = pesh.plugin.load("async")
 
 local temp_dir = path.join(os.getenv("TEMP") or ".", "_peshell_test_temp")
 
@@ -48,19 +50,19 @@ function TestProcessApi:testExecAndTerminate()
     local proc = process.exec_async({ command = cmd })
     lu.assertNotIsNil(proc, "exec_async returned nil")
     lu.assertTrue(proc.pid > 0, "Invalid PID")
-    -- 验证 handle() 方法返回非空 cdata
     lu.assertNotIsNil(proc:handle(), "Invalid handle from proc:handle()")
     
-    native.sleep(1000)
+    -- [API 更新] 主线程测试必须使用阻塞式睡眠
+    async.sleep_blocking(1000)
     
     -- 2. Find
     local found = process.find(name)
     lu.assertNotIsNil(found, "Could not find process by name")
     
-    -- 3. Terminate (New API: terminate instead of kill)
+    -- 3. Terminate
     lu.assertTrue(proc:terminate(0), "terminate(0) failed")
     
-    -- 4. Wait (New API: wait_for_exit synchronous method)
+    -- 4. Wait
     local exited = proc:wait_for_exit(5000)
     lu.assertTrue(exited, "Process did not exit in time")
 end
@@ -69,10 +71,7 @@ end
 TestShellGuardian = {}
 
 local function cleanup()
-    -- 清理可能残留的 ping.exe
     process.kill_all_by_name("ping.exe")
-    
-    -- 清理残留的守护进程 peshell.exe
     local self_pid = k32.GetCurrentProcessId()
     local pids = process.find_all("peshell.exe")
     for _, pid in ipairs(pids) do
@@ -96,7 +95,6 @@ function TestShellGuardian:testGuardianLifecycle()
     local ev_ready = "Global\\TestReady_" .. uid
     local ev_respawn = "Global\\TestRespawn_" .. uid
     
-    -- 创建测试用的事件句柄
     local h_ready = ffi.EventHandle(k32.CreateEventW(nil, 1, 0, ffi.to_wide(ev_ready)))
     local h_respawn = ffi.EventHandle(k32.CreateEventW(nil, 1, 0, ffi.to_wide(ev_respawn)))
     
@@ -112,7 +110,6 @@ function TestShellGuardian:testGuardianLifecycle()
     local idx = native.wait_for_multiple_objects_blocking({ h_ready }, 15000)
     lu.assertEquals(idx, 1, "Timeout waiting for READY signal")
     
-    -- 验证目标进程已启动
     local p1 = process.find(target_name)
     lu.assertNotIsNil(p1, "Target process should be running after READY")
     
@@ -132,12 +129,11 @@ function TestShellGuardian:testGuardianLifecycle()
     local s_proc = process.exec_async({ command = shut_cmd })
     if s_proc then s_proc:wait_for_exit(5000) end
     
-    native.sleep(2000)
+    -- [API 更新] 使用阻塞式睡眠等待清理
+    async.sleep_blocking(2000)
     
-    -- 验证 Guardian 和 Target 都已退出
     lu.assertIsNil(process.find(target_name), "Target should be gone after shutdown")
     
-    -- 清理 g_proc 句柄 (虽然不是必须的，因为是外部进程)
     if g_proc:is_valid() then g_proc:terminate(0) end
 end
 

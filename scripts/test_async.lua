@@ -1,5 +1,6 @@
 -- scripts/test_async.lua
--- 用于测试全新异步/等待模型的脚本 (适配插件系统)
+-- 用于测试全新异步/等待模型的脚本 (Modernized & Cleaned)
+-- v2.0 - Final Clean Version
 
 if not (_G.arg and _G.arg[1] == "run_from_main") then
     local log = require("core.log")
@@ -18,7 +19,6 @@ local fs_async = pesh.plugin.load("fs_async")
 local process = pesh.plugin.load("process")
 local ffi = pesh.ffi
 
--- Penlight is loaded by prelude
 local path = require("pl.path")
 local file = require("pl.file")
 local dir = require("pl.dir")
@@ -42,7 +42,8 @@ local function main_task()
     lu.assertTrue(status, "await(copy) should not throw an error. Got: " .. tostring(msg))
     log.info("  -> SUCCESS: Async copy completed.")
     
-    async.sleep_async(50)
+    -- [API 更新] 使用真正的异步睡眠
+    await(async.sleep, 50)
     lu.assertEquals(file.read(dest_file), test_content, "Copied content must match.")
 
     log.info("\n[2/4] Testing await on async file read...")
@@ -55,12 +56,15 @@ local function main_task()
     local proc = process.exec_async({ command = "notepad.exe" })
     lu.assertNotIsNil(proc, "Failed to start notepad.exe")
     
-    async.sleep_async(1500)
-    proc:kill()
+    -- [API 更新] 使用真正的异步睡眠等待进程稳定
+    await(async.sleep, 1500)
+    
+    proc:terminate(0)
     log.info("  -> Notepad killed. Now awaiting process exit...")
+    
+    -- 测试 wait_for_exit
     status, msg = pcall(await, process.wait_for_exit, proc)
     lu.assertTrue(status, "await(process.wait_for_exit) should succeed. Got: " .. tostring(msg))
-    proc:close_handle()
     log.info("  -> SUCCESS: Awaited process exit.")
     
     log.info("\n[4/4] Demonstrating concurrency...")
@@ -76,7 +80,9 @@ local function main_task()
         end
     end)
     log.info("  -> Immediately after starting copy, this message prints.")
-    async.sleep_async(50)
+    
+    -- [API 更新] 使用真正的异步睡眠
+    await(async.sleep, 50)
     log.info("  -> This proves the main flow was not blocked.")
     
     log.info("\n==============================================")

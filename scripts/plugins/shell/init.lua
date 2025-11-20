@@ -1,5 +1,5 @@
 -- scripts/plugins/shell/init.lua
--- 系统外壳守护插件 (v4.0 - proc_utils OOP Adaptation)
+-- 系统外壳守护插件 (v7.1 - Async Sleep Fix)
 
 local pesh = _G.pesh
 local M = {}
@@ -42,7 +42,9 @@ local function guardian_coroutine(shell_command, options)
     if strategy == "takeover" then
         log.info("GUARDIAN (takeover): Cleaning up '", shell_name, "'...")
         process.kill_all_by_name(shell_name)
-        async.sleep_async(500)
+        
+        -- [修复] 使用真正的异步睡眠
+        await(async.sleep, 500)
     end
 
     local is_first_launch = true
@@ -74,11 +76,9 @@ local function guardian_coroutine(shell_command, options)
         end
         
         -- 监控循环
-        -- [Updated] 使用 proc_utils 对象的 is_valid() 方法
         if shell_proc and shell_proc:is_valid() then
             log.info("GUARDIAN [", call_id, "]: Monitoring PID: ", shell_proc.pid)
             
-            -- [Critical] 获取用于 C++ wait 的非拥有型句柄
             local waitable_proc_handle = process.get_waitable_handle(shell_proc)
             
             if waitable_proc_handle then
@@ -103,13 +103,14 @@ local function guardian_coroutine(shell_command, options)
                 end
             else
                 log.error("GUARDIAN: Failed to get waitable handle. Process may have exited immediately.")
-                -- 稍微暂停防止死循环
-                async.sleep_async(1000)
+                -- [修复] 使用真正的异步睡眠
+                await(async.sleep, 1000)
             end
             
         else
             log.error("GUARDIAN: Failed to start/adopt shell process! Retrying in 2s...")
-            async.sleep_async(2000)
+            -- [修复] 使用真正的异步睡眠，防止阻塞其他任务
+            await(async.sleep, 2000)
         end
         
         is_first_launch = false

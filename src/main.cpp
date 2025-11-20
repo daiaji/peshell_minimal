@@ -12,7 +12,7 @@
 #include <spdlog/spdlog.h>
 
 #include <filesystem>
-#include <fstream> // 确保包含 <fstream> 以支持 std::ifstream
+#include <fstream> 
 #include <iostream>
 #include <lua.hpp>
 #include <map>
@@ -90,7 +90,7 @@ namespace LuaBindings
             lua_State*  co_to_wake = lua_tothread(L, 4);
 
             g_thread_pool.push([src_path, dst_path, co_to_wake](int id) {
-                (void)id; // 消除 "unreferenced parameter" 警告
+                (void)id; 
                 spdlog::debug("WORKER: Starting async copy from '{}' to '{}'", src_path, dst_path);
                 BOOL copy_success = CopyFileW(Utf8ToWide(src_path).c_str(), Utf8ToWide(dst_path).c_str(), FALSE);
 
@@ -179,6 +179,23 @@ namespace LuaBindings
                 SetEvent(g_hTaskCompletedEvent);
             });
         }
+        // [[ 核心修正 ]] 新增 Timer Worker，用于真正的异步睡眠
+        else if (strcmp(worker_name, "timer_worker") == 0)
+        {
+            int duration_ms = (int)luaL_checkinteger(L, 2);
+            lua_State* co_to_wake = lua_tothread(L, 3);
+
+            g_thread_pool.push([duration_ms, co_to_wake](int id) {
+                (void)id;
+                // 在后台线程中睡眠，不阻塞 Lua VM，也不阻塞主线程的消息循环
+                Sleep(duration_ms);
+
+                std::lock_guard<std::mutex> lock(g_completed_tasks_mutex);
+                g_completed_tasks.push({co_to_wake, true, "Timer expired", ""});
+                SetEvent(g_hTaskCompletedEvent);
+            });
+        }
+        
         return 0;
     }
 
@@ -360,7 +377,7 @@ int main(int argc, char* argv[])
 
     InitializeLogger(package_root_str, pid, argc, argv);
 
-    spdlog::info("PEShell v5.9 (Configurable Logging) starting...");
+    spdlog::info("PEShell v6.0 (Async Fix) starting...");
     spdlog::info("Package Root: {}", package_root_str);
 
     lua_State* L = InitializeLuaState(package_root_str);
@@ -511,8 +528,6 @@ int main(int argc, char* argv[])
                         {
                             if (op_to_resume.handles[i] == signaled_handle)
                             {
-                                // ==================== [核心修正] 修复编译器警告 C4267 ====================
-                                // 显式地将 size_t 转换为 int，消除数据截断的可能性警告
                                 signaled_idx = static_cast<int>(i) + 1;
                                 break;
                             }

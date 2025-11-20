@@ -1,5 +1,5 @@
 -- scripts/plugins/process/init.lua
--- Process 插件 (v5.2 - With Message Pumping Wait)
+-- Process 插件 (v5.3 - Final Clean Version)
 
 local pesh = _G.pesh
 local M = {}
@@ -99,7 +99,7 @@ end
 
 ---
 -- [异步] 等待进程退出 (供 await 使用)
--- 使用 C++ 线程池，不阻塞 Lua VM，但也不泵送消息（因为是在后台线程等待）
+-- 使用 C++ 线程池，不阻塞 Lua VM
 -- @param co coroutine: 当前协程
 -- @param process_obj table: proc_utils 对象
 function M.wait_for_exit(co, process_obj)
@@ -128,7 +128,6 @@ function M.wait_for_exit_pump(process_obj, timeout_ms)
     
     while true do
         -- 1. 非阻塞检查进程状态 (传入 0 表示立即返回)
-        -- proc_utils_ffi 的 wait_for_exit 封装了 WaitForSingleObject
         if process_obj:wait_for_exit(0) then
             return true
         end
@@ -143,8 +142,7 @@ function M.wait_for_exit_pump(process_obj, timeout_ms)
             end
         end
         
-        -- 3. 睡眠并泵送消息
-        -- native.sleep 内部使用 MsgWaitForMultipleObjects，保证 UI 不卡死
+        -- 3. 睡眠并泵送消息 (50ms)
         native.sleep(50)
     end
 end
@@ -172,10 +170,6 @@ function M.get_current_pid()
     return kernel32.GetCurrentProcessId()
 end
 
-function M.open_by_name(name)
-    return proc.open_by_name(name)
-end
-
 -- ============================================================
 -- 命令导出 (CLI)
 -- ============================================================
@@ -199,7 +193,7 @@ M.__commands = {
         
         if p_obj then
             if wait_for_exit then
-                -- CLI 模式下也建议使用带泵的等待
+                -- CLI 模式下也建议使用带泵的等待，以防 CLI 也是 GUI 程序
                 M.wait_for_exit_pump(p_obj, -1)
             end
             return 0

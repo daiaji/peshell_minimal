@@ -1,5 +1,6 @@
 -- scripts/plugins/async/init.lua
--- 异步执行插件，提供 await 和 async.run
+-- 异步执行插件，提供 await, async.run 和真正非阻塞的 sleep
+-- v5.3 - Final Clean Version
 
 local pesh = _G.pesh
 local M = {}
@@ -11,22 +12,16 @@ local coro_pool = pesh.plugin.load("coro_pool")
 
 -- 全局的 await 函数
 function _G.await(future_provider_func, ...)
-    -- [利用 Lua 5.2 特性] coroutine.running() 返回两个值
     local co, is_main = coroutine.running()
     if not co or is_main then
         error("await() must be called from within a coroutine, not the main thread.", 2)
     end
 
-    -- 执行 future_provider_func，它会启动一个后台任务
-    -- 它需要将当前协程 co 传递给后台
     future_provider_func(co, ...)
     
-    -- 让出执行权，等待 C++ 调度器唤醒
-    -- 当唤醒时，yield 会返回 C++ 传来的多个值
     local resumed_success, resumed_data_or_error = coroutine.yield()
     
     if not resumed_success then
-        -- 如果后台任务失败，我们在这里抛出错误，这样调用方可以用 pcall 捕获
         error(resumed_data_or_error, 2)
     end
     
@@ -37,8 +32,27 @@ end
 M.run = coro_pool.run
 log.info("Async plugin initialized with coroutine pooling.")
 
--- 带消息循环的阻塞式休眠（保留用于简单场景）
-function M.sleep_async(ms)
+---
+-- [真正异步] 休眠指定的毫秒数。
+-- 此函数会挂起当前协程，让出 CPU 给其他任务，直到时间到达。
+-- @param co coroutine: 当前协程（自动传入）
+-- @param ms number: 毫秒数
+local function sleep_async_impl(co, ms)
+    native.dispatch_worker("timer_worker", ms, co)
+end
+
+---
+-- [公开接口] 异步休眠。必须在协程中调用。
+-- 使用方法: await(async.sleep, 1000)
+function M.sleep(co, ms)
+    return sleep_async_impl(co, ms)
+end
+
+---
+-- [同步阻塞] 带消息循环的休眠。
+-- 警告：这会阻塞 Lua 虚拟机，导致其他异步任务无法处理。
+-- 仅在主线程脚本 (如 init.lua 或 test_suite.lua) 中使用。
+function M.sleep_blocking(ms)
     native.sleep(ms)
     return true
 end
