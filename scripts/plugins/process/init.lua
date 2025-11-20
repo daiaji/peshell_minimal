@@ -1,5 +1,5 @@
 -- scripts/plugins/process/init.lua
--- Process 插件 (v5.6 - Final with CLI Fixes)
+-- Process 插件 (Penlight CLI Integrated)
 
 local pesh = _G.pesh
 local M = {}
@@ -9,19 +9,19 @@ local log = _G.log
 local ffi = pesh.ffi
 local native = _G.pesh_native
 local path = require("pl.path")
+local app = require("pl.app") -- 使用 Penlight 的参数解析
 local kernel32 = pesh.plugin.load("winapi.kernel32")
 
 -- 2. 加载纯 Lua FFI 库
 local status, proc = pcall(require, "proc_utils_ffi")
-if not status then
-    error("CRITICAL: Failed to load 'proc_utils_ffi'. Error: " .. tostring(proc))
+if not status then 
+    error("CRITICAL: Failed to load 'proc_utils_ffi': " .. tostring(proc)) 
 end
 
--- 3. 定义非拥有型句柄结构
+-- 3. 句柄定义
 ffi.define("process_plugin_non_owning_handle", [[
     typedef struct { void* h; } NonOwningHandle_t;
 ]])
-
 local non_owning_mt = {} 
 local NonOwningHandle = ffi.metatype("NonOwningHandle_t", non_owning_mt)
 
@@ -86,6 +86,7 @@ function M.kill_all_by_name(process_name)
     return all_ok
 end
 
+-- 异步等待 (配合 await 使用)
 M.wait_for_exit = function(co, process_obj)
     if not process_obj then error("wait_for_exit called with nil process object") end
     local waitable = M.get_waitable_handle(process_obj)
@@ -96,6 +97,7 @@ M.wait_for_exit = function(co, process_obj)
     native.wait_for_multiple_objects(co, { waitable })
 end
 
+-- 同步等待 (带消息泵，防止卡死 UI/消息循环)
 function M.wait_for_exit_pump(process_obj, timeout_ms)
     if not process_obj or not process_obj.wait_for_exit then 
         log.error("wait_for_exit_pump: Invalid process object.")
@@ -138,28 +140,27 @@ end
 -- ============================================================
 M.__commands = {
     exec = function(args)
-        local wait_for_exit = false
-        local hide_window = false
-        local cmd_parts = {}
+        -- 使用 Penlight 强大的参数解析
+        -- parse_args 返回两个表：flags (选项) 和 params (位置参数)
+        local flags, params = app.parse_args(args.cmd, {
+            wait = true, w = true,  -- -w 或 --wait
+            hide = true, h = true   -- -h 或 --hide
+        })
         
-        -- [[ 修复 ]] 支持 GNU 风格长参数
-        for _, part in ipairs(args.cmd) do
-            if part == "-w" or part == "--wait" then 
-                wait_for_exit = true
-            elseif part == "-h" or part == "--hide" then 
-                hide_window = true
-            else 
-                table.insert(cmd_parts, part)
-            end
+        -- 获取剩余的位置参数作为命令
+        if #params == 0 then 
+            log.error("exec: Missing command.")
+            return 1
         end
         
-        if #cmd_parts == 0 then log.error("exec: Missing command."); return 1; end
-        local cmd_line = table.concat(cmd_parts, " ")
-        local show_val = hide_window and proc.constants.SW_HIDE or proc.constants.SW_SHOWNORMAL
+        local cmd_line = table.concat(params, " ")
+        
+        local show_val = (flags.hide or flags.h) and proc.constants.SW_HIDE or proc.constants.SW_SHOWNORMAL
+        local wait_val = (flags.wait or flags.w)
         
         local p_obj = M.exec_async({ command = cmd_line, show_mode = show_val })
         if p_obj then
-            if wait_for_exit then M.wait_for_exit_pump(p_obj, -1) end
+            if wait_val then M.wait_for_exit_pump(p_obj, -1) end
             return 0
         end
         return 1

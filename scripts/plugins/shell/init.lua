@@ -1,5 +1,5 @@
 -- scripts/plugins/shell/init.lua
--- 系统外壳守护插件 (v7.1 - Async Sleep Fix)
+-- 系统外壳守护插件 (Scorched Earth Policy - Aggressive Cleanup)
 
 local pesh = _G.pesh
 local M = {}
@@ -15,7 +15,7 @@ local u32 = pesh.plugin.load("winapi.user32")
 
 local SHUTDOWN_EVENT_NAME = "Global\\PEShell_Guardian_Shutdown_Event"
 
--- 2. 业务逻辑
+-- 2. 守护协程逻辑
 local function guardian_coroutine(shell_command, options)
     options = options or {}
     local call_id = options.unique_call_id or "UNKNOWN_ID"
@@ -32,18 +32,18 @@ local function guardian_coroutine(shell_command, options)
     log.info("GUARDIAN [", call_id, "]: Coroutine started for '", shell_name, "' with strategy '", strategy, "'.")
     
     local shutdown_event_h = k32.CreateEventW(nil, 1, 0, ffi.to_wide(SHUTDOWN_EVENT_NAME))
-    if shutdown_event_h == nil then
+    if not shutdown_event_h or shutdown_event_h == nil then
         log.critical("GUARDIAN [", call_id, "]: Failed to create shutdown event.")
         return
     end
-    -- RAII-style event handle
     local shutdown_event = ffi.EventHandle(shutdown_event_h)
 
+    -- [Phase 1] 启动前清洗 (Scorched Earth)
     if strategy == "takeover" then
-        log.info("GUARDIAN (takeover): Cleaning up '", shell_name, "'...")
+        log.info("GUARDIAN: Performing pre-launch CLEANUP for '", shell_name, "'...")
         process.kill_all_by_name(shell_name)
         
-        -- [修复] 使用真正的异步睡眠
+        -- 真正的异步睡眠，不阻塞消息循环，给系统一点时间回收PID
         await(async.sleep, 500)
     end
 
@@ -52,7 +52,7 @@ local function guardian_coroutine(shell_command, options)
     while true do
         local shell_proc = nil
         
-        -- 尝试启动或接管
+        -- 策略：尝试接管现有进程 (仅在 adopt 模式且首次启动)
         if strategy == "adopt" and is_first_launch then
             shell_proc = process.find(shell_name)
             if shell_proc then
@@ -60,11 +60,12 @@ local function guardian_coroutine(shell_command, options)
             end
         end
         
+        -- 否则：创建新实例
         if not shell_proc then
              shell_proc = process.exec_async({ command = shell_command })
         end
 
-        -- 发送就绪/重启信号
+        -- 发送信号 (Ready / Respawn)
         if shell_proc then
             if is_first_launch and ready_event_name then
                 local h = k32.OpenEventW(0x0002, 0, ffi.to_wide(ready_event_name))
@@ -75,7 +76,7 @@ local function guardian_coroutine(shell_command, options)
             end
         end
         
-        -- 监控循环
+        -- [Phase 2] 监控循环
         if shell_proc and shell_proc:is_valid() then
             log.info("GUARDIAN [", call_id, "]: Monitoring PID: ", shell_proc.pid)
             
@@ -84,7 +85,7 @@ local function guardian_coroutine(shell_command, options)
             if waitable_proc_handle then
                 local handles_to_wait = { waitable_proc_handle, shutdown_event }
                 
-                -- 阻塞协程，直到任意一个 Handle 被触发
+                -- 异步阻塞，等待 Shell 退出或收到关机信号
                 local signaled_index = await(native.wait_for_multiple_objects, handles_to_wait, false, -1)
                 
                 if signaled_index == 1 then
@@ -102,22 +103,23 @@ local function guardian_coroutine(shell_command, options)
                     break
                 end
             else
-                log.error("GUARDIAN: Failed to get waitable handle. Process may have exited immediately.")
-                -- [修复] 使用真正的异步睡眠
+                log.error("GUARDIAN: Failed to get waitable handle. Retrying...")
                 await(async.sleep, 1000)
             end
             
         else
             log.error("GUARDIAN: Failed to start/adopt shell process! Retrying in 2s...")
-            -- [修复] 使用真正的异步睡眠，防止阻塞其他任务
             await(async.sleep, 2000)
         end
         
         is_first_launch = false
     end
 
-    log.info("GUARDIAN: Cleaning up before exit...")
+    -- [Phase 3] 退出清洗 (Scorched Earth)
+    log.info("GUARDIAN: Final CLEANUP before exit...")
     process.kill_all_by_name(shell_name)
+    
+    -- 通知主消息循环退出
     u32.PostQuitMessage(0)
 end
 
@@ -125,6 +127,8 @@ function M.lock_shell(shell_command, options)
     if not shell_command then return false end
     local call_id = options and options.unique_call_id or "UNSPECIFIED"
     log.info("SHELL PLUGIN: Dispatching guardian for [", call_id, "]")
+    
+    -- 启动异步任务
     async.run(guardian_coroutine, shell_command, options)
     return true
 end
@@ -142,8 +146,10 @@ M.__commands = {
         if not args.cmd or #args.cmd == 0 then return 1 end
         local adopt_mode = (args.cmd[1] == "--adopt")
         if adopt_mode then table.remove(args.cmd, 1) end
+        
         local cmd_line = table.concat(args.cmd, " ")
         if cmd_line == "" then return 1 end
+        
         M.lock_shell(cmd_line, { strategy = adopt_mode and "adopt" or "takeover" })
         return 0
     end,
