@@ -1,5 +1,5 @@
 -- scripts/test_suite.lua
--- PEShell API Test Suite (v15.0 - Full Coverage)
+-- PEShell API Test Suite (v15.1 - Fix strict boolean assertions)
 
 local lu = require("luaunit")
 local log = _G.log
@@ -13,7 +13,6 @@ local process = pesh.plugin.load("process")
 local pe = pesh.plugin.load("pe")
 local k32 = pesh.plugin.load("winapi.kernel32")
 local async = pesh.plugin.load("async")
--- [[ 新增 ]] 加载 fs 插件
 local fs = pesh.plugin.load("fs")
 
 local temp_dir = path.join(os.getenv("TEMP") or ".", "_peshell_test_temp")
@@ -29,7 +28,7 @@ function teardownSuite()
     log.info("FINISHED TEST SUITE")
 end
 
--- [[ 恢复 ]] 文件系统测试
+-- File System Tests
 TestFileSystem = {}
 function TestFileSystem:testCopyAndMove()
     log.debug("TEST: TestFileSystem:testCopyAndMove")
@@ -42,17 +41,24 @@ function TestFileSystem:testCopyAndMove()
     
     -- Test Copy
     lu.assertTrue(fs.copy(src, dst), "fs.copy failed")
-    lu.assertTrue(fs.exists(dst), "Destination file not created")
+    
+    -- [FIX] fs.exists (pl.path.exists) returns path string (truthy) or nil.
+    -- luaunit.assertTrue checks for strict true, so we must use assertNotIsNil.
+    lu.assertNotIsNil(fs.exists(dst), "Destination file not created")
     
     -- Test Move
     local dst2 = path.join(temp_dir, "file_moved.txt")
     lu.assertTrue(fs.move(dst, dst2), "fs.move failed")
-    lu.assertFalse(fs.exists(dst), "Original file still exists after move")
-    lu.assertTrue(fs.exists(dst2), "Moved file not found")
+    
+    -- [FIX] fs.exists returns nil when missing. Use assertIsNil.
+    lu.assertIsNil(fs.exists(dst), "Original file still exists after move")
+    lu.assertNotIsNil(fs.exists(dst2), "Moved file not found")
     
     -- Test Delete
     lu.assertTrue(fs.delete(dst2), "fs.delete failed")
-    lu.assertFalse(fs.exists(dst2), "Deleted file still exists")
+    
+    -- [FIX] Use assertIsNil
+    lu.assertIsNil(fs.exists(dst2), "Deleted file still exists")
 end
 
 -- PE API Tests
@@ -62,6 +68,7 @@ function TestPeApi:testInitialize()
     local mock_user = path.join(temp_dir, "MockUser")
     k32.SetEnvironmentVariableW(ffi.to_wide("USERPROFILE"), ffi.to_wide(mock_user))
     pe.initialize()
+    -- path.isdir returns boolean (true/false), so assertTrue is fine here
     lu.assertTrue(path.isdir(path.join(mock_user, "Desktop")))
     k32.SetEnvironmentVariableW(ffi.to_wide("USERPROFILE"), nil)
 end
@@ -77,7 +84,7 @@ function TestProcessApi:testExecAndTerminate()
     local proc = process.exec_async({ command = cmd })
     lu.assertNotIsNil(proc, "exec_async returned nil")
     
-    -- [[ 修复 ]] 使用 :handle() 方法而不是 .handle 属性
+    -- Use :handle() method
     lu.assertNotIsNil(proc:handle(), "Invalid handle from proc:handle()")
     
     async.sleep_blocking(1000)
