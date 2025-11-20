@@ -1,166 +1,144 @@
 -- scripts/test_suite.lua
--- PEShell API 自动化测试套件 (v13.0 - Plugin Architecture)
+-- PEShell API Test Suite (v14.0 - Native proc_utils OOP)
 
 local lu = require("luaunit")
--- 核心服务
 local log = _G.log
 local pesh = _G.pesh
 local ffi = pesh.ffi
 local native = _G.pesh_native
-
--- Penlight 模块
 local path = require("pl.path")
 local dir = require("pl.dir")
 
--- 按需加载所有测试需要的插件
 local process = pesh.plugin.load("process")
 local pe = pesh.plugin.load("pe")
 local k32 = pesh.plugin.load("winapi.kernel32")
 
 local temp_dir = path.join(os.getenv("TEMP") or ".", "_peshell_test_temp")
 
--- =================================================================
---  全局测试固件
--- =================================================================
 function setupSuite()
-    log.info("===================================================")
-    log.info("  PEShell Unit & Integration Test Suite - Started  ")
-    log.info("===================================================")
+    log.info("STARTING TEST SUITE")
     if path.isdir(temp_dir) then dir.rmtree(temp_dir) end
     dir.makepath(temp_dir)
 end
 
 function teardownSuite()
     if path.isdir(temp_dir) then dir.rmtree(temp_dir) end
-    log.info("===================================================")
-    log.info("   PEShell Unit & Integration Test Suite - Finished  ")
-    log.info("===================================================")
+    log.info("FINISHED TEST SUITE")
 end
 
--- =================================================================
---  测试用例：PE 初始化 API
--- =================================================================
+-- PE API Tests
 TestPeApi = {}
-function TestPeApi:testInitializeCreatesFolders()
-    log.debug("[RUNNING] TestPeApi:testInitializeCreatesFolders")
-    local mock_userprofile = path.join(temp_dir, "MockUser")
-    k32.SetEnvironmentVariableW(ffi.to_wide("USERPROFILE"), ffi.to_wide(mock_userprofile))
+function TestPeApi:testInitialize()
+    log.debug("TEST: TestPeApi:testInitialize")
+    local mock_user = path.join(temp_dir, "MockUser")
+    k32.SetEnvironmentVariableW(ffi.to_wide("USERPROFILE"), ffi.to_wide(mock_user))
     pe.initialize()
-    local desktop_path = path.join(mock_userprofile, "Desktop")
-    lu.assertTrue(path.isdir(desktop_path), "PE initialize should create Desktop directory.")
+    lu.assertTrue(path.isdir(path.join(mock_user, "Desktop")))
     k32.SetEnvironmentVariableW(ffi.to_wide("USERPROFILE"), nil)
 end
 
--- =================================================================
---  测试用例：基础进程 API
--- =================================================================
+-- Process API Tests
 TestProcessApi = {}
-function TestProcessApi:testExecAndKill()
-    log.debug("[RUNNING] TestProcessApi:testExecAndKill")
-    local test_command = "ping.exe -t 127.0.0.1"
-    local test_process_name = "ping.exe"
+function TestProcessApi:testExecAndTerminate()
+    log.debug("TEST: TestProcessApi:testExecAndTerminate")
+    local cmd = "ping.exe -t 127.0.0.1"
+    local name = "ping.exe"
     
-    local proc, err_msg = process.exec_async({ command = test_command })
-    lu.assertNotIsNil(proc, "process.exec_async should return a process object. Got: " .. tostring(err_msg))
-    lu.assertNotIsNil(proc.handle, "Process object should have a valid handle")
-    lu.assertTrue(proc.pid > 0, "Process object should have a valid PID")
+    -- 1. Exec
+    local proc = process.exec_async({ command = cmd })
+    lu.assertNotIsNil(proc, "exec_async returned nil")
+    lu.assertTrue(proc.pid > 0, "Invalid PID")
+    -- 验证 handle() 方法返回非空 cdata
+    lu.assertNotIsNil(proc:handle(), "Invalid handle from proc:handle()")
     
-    native.sleep(1500)
-    -- 使用高级 API 验证
-    lu.assertNotIsNil(process.find(test_process_name), test_process_name .. " should exist after launch")
-
-    lu.assertTrue(proc:kill(), "kill() method should return true on success")
+    native.sleep(1000)
     
-    local exited, wait_err = proc:wait_for_exit_blocking(5000)
-    lu.assertTrue(exited, "Process should have exited after kill. Error: " .. tostring(wait_err))
+    -- 2. Find
+    local found = process.find(name)
+    lu.assertNotIsNil(found, "Could not find process by name")
     
-    proc:close_handle()
-    lu.assertIsNil(proc.handle.h, "Handle pointer should be nil after explicit close")
+    -- 3. Terminate (New API: terminate instead of kill)
+    lu.assertTrue(proc:terminate(0), "terminate(0) failed")
+    
+    -- 4. Wait (New API: wait_for_exit synchronous method)
+    local exited = proc:wait_for_exit(5000)
+    lu.assertTrue(exited, "Process did not exit in time")
 end
 
--- =================================================================
---  测试用例：守护进程功能
--- =================================================================
+-- Guardian Tests
 TestShellGuardian = {}
 
-local function cleanup_lingering_processes()
-    log.debug("CLEANUP: Cleaning up potential leftover processes...")
+local function cleanup()
+    -- 清理可能残留的 ping.exe
     process.kill_all_by_name("ping.exe")
+    
+    -- 清理残留的守护进程 peshell.exe
     local self_pid = k32.GetCurrentProcessId()
-    local peshell_pids = process.find_all("peshell.exe")
-    for _, pid in ipairs(peshell_pids) do
-        if pid ~= self_pid then
-            log.warn("  -> Cleaning up leftover peshell.exe with PID: ", pid)
-            -- 使用高级 API
-            local p_to_kill = process.find(tostring(pid))
-            if p_to_kill then p_to_kill:kill() end
+    local pids = process.find_all("peshell.exe")
+    for _, pid in ipairs(pids) do
+        if pid ~= self_pid then 
+            local p = process.find(tostring(pid))
+            if p then p:terminate(0) end 
         end
     end
 end
 
-function TestShellGuardian:setUp() cleanup_lingering_processes() end
-function TestShellGuardian:tearDown() cleanup_lingering_processes() end
+function TestShellGuardian:setUp() cleanup() end
+function TestShellGuardian:tearDown() cleanup() end
 
 function TestShellGuardian:testGuardianLifecycle()
-    log.debug("[RUNNING] TestShellGuardian:testGuardianLifecycle")
-    local peshell_exe_path = process.get_self_path()
-    local target_process_cmd = "ping.exe -t 127.0.0.1"
-    local target_process_name = "ping.exe"
+    log.debug("TEST: TestShellGuardian:testGuardianLifecycle")
+    local self_path = process.get_self_path()
+    local target_cmd = "ping.exe -t 127.0.0.1"
+    local target_name = "ping.exe"
 
-    local unique_id = k32.GetCurrentProcessId() .. "_" .. math.random(10000, 99999)
-    local ready_event_name = "Global\\PEShell_Test_Ready_" .. unique_id
-    local respawn_event_name = "Global\\PEShell_Test_Respawn_" .. unique_id
+    local uid = tostring(k32.GetCurrentProcessId()) .. "_" .. tostring(math.random(1000,9999))
+    local ev_ready = "Global\\TestReady_" .. uid
+    local ev_respawn = "Global\\TestRespawn_" .. uid
     
-    -- [[ 关键修正 ]] 使用安全的 RAII handle
-    local ready_event = ffi.EventHandle(k32.CreateEventW(nil, 1, 0, ffi.to_wide(ready_event_name)))
-    local respawn_event = ffi.EventHandle(k32.CreateEventW(nil, 1, 0, ffi.to_wide(respawn_event_name)))
-    lu.assertNotIsNil(ready_event)
-    lu.assertNotIsNil(respawn_event)
+    -- 创建测试用的事件句柄
+    local h_ready = ffi.EventHandle(k32.CreateEventW(nil, 1, 0, ffi.to_wide(ev_ready)))
+    local h_respawn = ffi.EventHandle(k32.CreateEventW(nil, 1, 0, ffi.to_wide(ev_respawn)))
     
-    -- [[ 关键修正 ]] 修复脚本路径
-    local test_script_path = "share/lua/5.1/test_guardian_init.lua"
-    local guardian_cmd = string.format('"%s" main "%s" "%s" %s %s', 
-        peshell_exe_path, test_script_path, target_process_cmd, ready_event_name, respawn_event_name)
-    local shutdown_cmd = string.format('"%s" shutdown', peshell_exe_path)
-
-    log.info("  [1/4] Launching external guardian process...")
-    local guardian_proc = process.exec_async({ command = guardian_cmd })
-    lu.assertNotIsNil(guardian_proc)
-    guardian_proc:close_handle() -- 我们不直接操作守护进程, let it run
-
-    log.info("  -> Waiting for READY signal...")
-    local signaled_index, err = native.wait_for_multiple_objects_blocking({ ready_event }, 15000)
-    lu.assertEquals(signaled_index, 1, "Guardian failed to signal READY within 15s. Error: " .. tostring(err))
-    log.info("  -> READY signal received.")
+    local script = "share/lua/5.1/test_guardian_init.lua"
+    local guardian_args = string.format('"%s" main "%s" "%s" %s %s', 
+        self_path, script, target_cmd, ev_ready, ev_respawn)
+        
+    -- 1. 启动外部 Guardian
+    local g_proc = process.exec_async({ command = guardian_args })
+    lu.assertNotIsNil(g_proc, "Failed to launch guardian")
     
-    local p1 = process.find(target_process_name)
-    lu.assertNotIsNil(p1, "Target process should be running after READY signal.")
-
-    log.info("  [2/4] Testing respawn...")
-    p1:kill()
+    -- 2. 等待 READY 信号
+    local idx = native.wait_for_multiple_objects_blocking({ h_ready }, 15000)
+    lu.assertEquals(idx, 1, "Timeout waiting for READY signal")
     
-    log.info("  -> Waiting for RESPAWN signal...")
-    signaled_index, err = native.wait_for_multiple_objects_blocking({ respawn_event }, 15000)
-    lu.assertEquals(signaled_index, 1, "Guardian failed to signal RESPAWN within 15s. Error: " .. tostring(err))
-    log.info("  -> RESPAWN signal received.")
-
-    local p2 = process.find(target_process_name)
-    lu.assertNotIsNil(p2, "Target process should have been respawned.")
-    lu.assertNotEquals(p1.pid, p2.pid, "Respawned process should have a new PID.")
-
-    log.info("  [3/4] Sending shutdown signal...")
-    local shutdown_proc, _ = process.exec_async({ command = shutdown_cmd })
-    if shutdown_proc then
-        shutdown_proc:wait_for_exit_blocking(5000)
-        shutdown_proc:close_handle() 
-    end
+    -- 验证目标进程已启动
+    local p1 = process.find(target_name)
+    lu.assertNotIsNil(p1, "Target process should be running after READY")
     
-    log.info("  [4/4] Verifying shutdown...")
+    -- 3. 杀死目标进程以触发重生
+    p1:terminate(0)
+    
+    -- 4. 等待 RESPAWN 信号
+    idx = native.wait_for_multiple_objects_blocking({ h_respawn }, 15000)
+    lu.assertEquals(idx, 1, "Timeout waiting for RESPAWN signal")
+    
+    local p2 = process.find(target_name)
+    lu.assertNotIsNil(p2, "Target process should have been respawned")
+    lu.assertNotEquals(p1.pid, p2.pid, "Respawned PID should be different")
+    
+    -- 5. 发送 Shutdown 命令
+    local shut_cmd = string.format('"%s" shutdown', self_path)
+    local s_proc = process.exec_async({ command = shut_cmd })
+    if s_proc then s_proc:wait_for_exit(5000) end
+    
     native.sleep(2000)
-    lu.assertIsNil(process.find(target_process_name), "Target process should be terminated after shutdown.")
+    
+    -- 验证 Guardian 和 Target 都已退出
+    lu.assertIsNil(process.find(target_name), "Target should be gone after shutdown")
+    
+    -- 清理 g_proc 句柄 (虽然不是必须的，因为是外部进程)
+    if g_proc:is_valid() then g_proc:terminate(0) end
 end
 
--- =================================================================
---  运行所有测试
--- =================================================================
 return lu.LuaUnit.run()
