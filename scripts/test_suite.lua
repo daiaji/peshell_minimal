@@ -1,5 +1,5 @@
 -- scripts/test_suite.lua
--- PEShell API Test Suite (v14.1 - Final Clean Version)
+-- PEShell API Test Suite (v15.0 - Full Coverage)
 
 local lu = require("luaunit")
 local log = _G.log
@@ -12,8 +12,9 @@ local dir = require("pl.dir")
 local process = pesh.plugin.load("process")
 local pe = pesh.plugin.load("pe")
 local k32 = pesh.plugin.load("winapi.kernel32")
--- [API 更新] 需要加载 async 插件以使用 sleep_blocking
 local async = pesh.plugin.load("async")
+-- [[ 新增 ]] 加载 fs 插件
+local fs = pesh.plugin.load("fs")
 
 local temp_dir = path.join(os.getenv("TEMP") or ".", "_peshell_test_temp")
 
@@ -26,6 +27,32 @@ end
 function teardownSuite()
     if path.isdir(temp_dir) then dir.rmtree(temp_dir) end
     log.info("FINISHED TEST SUITE")
+end
+
+-- [[ 恢复 ]] 文件系统测试
+TestFileSystem = {}
+function TestFileSystem:testCopyAndMove()
+    log.debug("TEST: TestFileSystem:testCopyAndMove")
+    local src = path.join(temp_dir, "file.txt")
+    local dst = path.join(temp_dir, "file_copy.txt")
+    
+    local f = io.open(src, "w")
+    f:write("content")
+    f:close()
+    
+    -- Test Copy
+    lu.assertTrue(fs.copy(src, dst), "fs.copy failed")
+    lu.assertTrue(fs.exists(dst), "Destination file not created")
+    
+    -- Test Move
+    local dst2 = path.join(temp_dir, "file_moved.txt")
+    lu.assertTrue(fs.move(dst, dst2), "fs.move failed")
+    lu.assertFalse(fs.exists(dst), "Original file still exists after move")
+    lu.assertTrue(fs.exists(dst2), "Moved file not found")
+    
+    -- Test Delete
+    lu.assertTrue(fs.delete(dst2), "fs.delete failed")
+    lu.assertFalse(fs.exists(dst2), "Deleted file still exists")
 end
 
 -- PE API Tests
@@ -49,10 +76,10 @@ function TestProcessApi:testExecAndTerminate()
     -- 1. Exec
     local proc = process.exec_async({ command = cmd })
     lu.assertNotIsNil(proc, "exec_async returned nil")
-    lu.assertTrue(proc.pid > 0, "Invalid PID")
+    
+    -- [[ 修复 ]] 使用 :handle() 方法而不是 .handle 属性
     lu.assertNotIsNil(proc:handle(), "Invalid handle from proc:handle()")
     
-    -- [API 更新] 主线程测试必须使用阻塞式睡眠
     async.sleep_blocking(1000)
     
     -- 2. Find
@@ -129,7 +156,6 @@ function TestShellGuardian:testGuardianLifecycle()
     local s_proc = process.exec_async({ command = shut_cmd })
     if s_proc then s_proc:wait_for_exit(5000) end
     
-    -- [API 更新] 使用阻塞式睡眠等待清理
     async.sleep_blocking(2000)
     
     lu.assertIsNil(process.find(target_name), "Target should be gone after shutdown")

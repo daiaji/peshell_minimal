@@ -1,5 +1,5 @@
 -- scripts/plugins/process/init.lua
--- Process 插件 (v5.3 - Final Clean Version)
+-- Process 插件 (v5.6 - Final with CLI Fixes)
 
 local pesh = _G.pesh
 local M = {}
@@ -25,28 +25,22 @@ ffi.define("process_plugin_non_owning_handle", [[
 local non_owning_mt = {} 
 local NonOwningHandle = ffi.metatype("NonOwningHandle_t", non_owning_mt)
 
----
--- 获取用于 C++ 异步等待的句柄包装
--- @param process_obj table: proc_utils 的 Process 对象
 function M.get_waitable_handle(process_obj)
     if not process_obj then return nil end
-    -- proc_utils 对象有 :handle() 方法返回 cdata<HANDLE>
     local raw_h = process_obj:handle()
     if not raw_h then return nil end
     return NonOwningHandle(raw_h)
 end
 
 -- ============================================================
--- 核心 API 实现 (适配 proc_utils)
+-- 核心 API 实现
 -- ============================================================
 
 function M.exec_async(params)
     local command = params.command
     local workdir = params.working_dir
-    -- 映射 show_mode: 0 -> SW_HIDE, 1 -> SW_SHOWNORMAL
     local show_mode = params.show_mode or proc.constants.SW_SHOWNORMAL
     
-    -- 调用 proc_utils 工厂
     local p_obj, err_code, err_msg = proc.exec(command, workdir, show_mode)
     
     if not p_obj then
@@ -61,11 +55,8 @@ function M.exec_async(params)
 end
 
 function M.find(name_or_pid)
-    -- proc.exists 返回 PID 或 0
     local pid = proc.exists(name_or_pid)
     if pid == 0 then return nil end
-    
-    -- 打开进程获取对象
     local p_obj, err, msg = proc.open_by_pid(pid)
     if not p_obj then
         log.warn("Process exists (PID:", pid, ") but could not open handle: ", msg)
@@ -75,8 +66,7 @@ function M.find(name_or_pid)
 end
 
 function M.find_all(name)
-    local pids = proc.find_all(name)
-    return pids or {} 
+    return proc.find_all(name) or {}
 end
 
 function M.kill_all_by_name(process_name)
@@ -86,7 +76,6 @@ function M.kill_all_by_name(process_name)
         log.info("No processes found to kill.")
         return true 
     end
-    
     local all_ok = true
     for _, pid in ipairs(pids) do
         if not proc.terminate_by_pid(pid, 0) then
@@ -97,52 +86,28 @@ function M.kill_all_by_name(process_name)
     return all_ok
 end
 
----
--- [异步] 等待进程退出 (供 await 使用)
--- 使用 C++ 线程池，不阻塞 Lua VM
--- @param co coroutine: 当前协程
--- @param process_obj table: proc_utils 对象
-function M.wait_for_exit(co, process_obj)
+M.wait_for_exit = function(co, process_obj)
     if not process_obj then error("wait_for_exit called with nil process object") end
     local waitable = M.get_waitable_handle(process_obj)
     if not waitable then
-        log.warn("wait_for_exit: Process object has no valid handle.")
+        coroutine.resume(co, true)
+        return
     end
-    native.dispatch_worker("process_wait_worker", waitable, co)
+    native.wait_for_multiple_objects(co, { waitable })
 end
 
----
--- [同步] 带消息泵的等待 (UI Friendly Blocking Wait)
--- 专用于 init.lua 等主线程脚本，防止在等待时界面冻结。
--- @param process_obj table: proc_utils 对象
--- @param timeout_ms number: 超时毫秒数，-1 为无限
--- @return boolean: true 表示进程已退出，false 表示超时
 function M.wait_for_exit_pump(process_obj, timeout_ms)
     if not process_obj or not process_obj.wait_for_exit then 
         log.error("wait_for_exit_pump: Invalid process object.")
         return false 
     end
-
     timeout_ms = timeout_ms or -1
     local start_tick = kernel32.GetTickCount()
-    
     while true do
-        -- 1. 非阻塞检查进程状态 (传入 0 表示立即返回)
-        if process_obj:wait_for_exit(0) then
-            return true
-        end
-        
-        -- 2. 检查超时
+        if process_obj:wait_for_exit(0) then return true end
         if timeout_ms >= 0 then
-            local current_tick = kernel32.GetTickCount()
-            -- 处理 GetTickCount 溢出 (49.7天) 的简单回绕逻辑
-            local elapsed = current_tick - start_tick
-            if elapsed > timeout_ms then
-                return false
-            end
+            if (kernel32.GetTickCount() - start_tick) > timeout_ms then return false end
         end
-        
-        -- 3. 睡眠并泵送消息 (50ms)
         native.sleep(50)
     end
 end
@@ -153,9 +118,7 @@ end
 
 function M.get_self_path()
     local buf = ffi.new("wchar_t[?]", 260)
-    if kernel32.GetModuleFileNameW(nil, buf, 260) > 0 then
-        return ffi.from_wide(buf)
-    end
+    if kernel32.GetModuleFileNameW(nil, buf, 260) > 0 then return ffi.from_wide(buf) end
     return nil
 end
 
@@ -178,24 +141,25 @@ M.__commands = {
         local wait_for_exit = false
         local hide_window = false
         local cmd_parts = {}
+        
+        -- [[ 修复 ]] 支持 GNU 风格长参数
         for _, part in ipairs(args.cmd) do
-            if part == "-w" then wait_for_exit = true
-            elseif part == "-h" then hide_window = true
-            else table.insert(cmd_parts, part)
+            if part == "-w" or part == "--wait" then 
+                wait_for_exit = true
+            elseif part == "-h" or part == "--hide" then 
+                hide_window = true
+            else 
+                table.insert(cmd_parts, part)
             end
         end
-        if #cmd_parts == 0 then log.error("exec: Missing command."); return 1; end
         
+        if #cmd_parts == 0 then log.error("exec: Missing command."); return 1; end
         local cmd_line = table.concat(cmd_parts, " ")
         local show_val = hide_window and proc.constants.SW_HIDE or proc.constants.SW_SHOWNORMAL
         
         local p_obj = M.exec_async({ command = cmd_line, show_mode = show_val })
-        
         if p_obj then
-            if wait_for_exit then
-                -- CLI 模式下也建议使用带泵的等待，以防 CLI 也是 GUI 程序
-                M.wait_for_exit_pump(p_obj, -1)
-            end
+            if wait_for_exit then M.wait_for_exit_pump(p_obj, -1) end
             return 0
         end
         return 1
