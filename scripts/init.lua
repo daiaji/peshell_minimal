@@ -33,13 +33,12 @@ local wpeinit_proc = process.exec_async({ command = wpeinit_cmd })
 if wpeinit_proc then
     log.info("wpeinit.exe started, waiting for it to finish...")
     
-    -- [FIX] 使用新 API wait_for_exit 代替 wait_for_exit_blocking
-    -- -1 表示无限等待
-    wpeinit_proc:wait_for_exit(-1)
+    -- [[ 核心修复 ]] 使用 wait_for_exit_pump 替代直接调用 wait_for_exit
+    -- 这确保了在等待期间，主线程的消息循环继续运转，防止窗口冻结。
+    -- -1 表示无限等待。
+    process.wait_for_exit_pump(wpeinit_proc, -1)
     
-    -- [FIX] 移除 close_handle 调用
-    -- 新的 proc_utils_ffi 基于 FFI GC 自动管理句柄 (RAII)。
-    -- 显式将其置为 nil 有助于让垃圾回收器更快回收句柄，但不是必须的。
+    -- 显式置空，利用 GC 自动回收句柄 (RAII)
     wpeinit_proc = nil 
     
     log.info("wpeinit.exe finished.")

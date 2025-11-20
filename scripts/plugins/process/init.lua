@@ -1,6 +1,5 @@
 -- scripts/plugins/process/init.lua
--- Process 插件 (v5.1 - Native proc_utils_ffi Adapter)
--- 修复：使用 ffi.define 替代 ffi.cdef
+-- Process 插件 (v5.2 - With Message Pumping Wait)
 
 local pesh = _G.pesh
 local M = {}
@@ -12,14 +11,13 @@ local native = _G.pesh_native
 local path = require("pl.path")
 local kernel32 = pesh.plugin.load("winapi.kernel32")
 
--- 2. 加载纯 Lua FFI 库 (需确保 proc_utils_ffi.lua 已在 lib 目录)
+-- 2. 加载纯 Lua FFI 库
 local status, proc = pcall(require, "proc_utils_ffi")
 if not status then
     error("CRITICAL: Failed to load 'proc_utils_ffi'. Error: " .. tostring(proc))
 end
 
 -- 3. 定义非拥有型句柄结构
--- [FIX] 使用 ffi.define 而不是 ffi.cdef，因为 pesh.ffi 不直接暴露 cdef
 ffi.define("process_plugin_non_owning_handle", [[
     typedef struct { void* h; } NonOwningHandle_t;
 ]])
@@ -46,7 +44,6 @@ function M.exec_async(params)
     local command = params.command
     local workdir = params.working_dir
     -- 映射 show_mode: 0 -> SW_HIDE, 1 -> SW_SHOWNORMAL
-    -- proc_utils.constants 中 SW_HIDE=0, SW_SHOWNORMAL=1
     local show_mode = params.show_mode or proc.constants.SW_SHOWNORMAL
     
     -- 调用 proc_utils 工厂
@@ -78,7 +75,6 @@ function M.find(name_or_pid)
 end
 
 function M.find_all(name)
-    -- 直接使用库提供的查找功能，返回 {pid1, pid2...}
     local pids = proc.find_all(name)
     return pids or {} 
 end
@@ -93,7 +89,6 @@ function M.kill_all_by_name(process_name)
     
     local all_ok = true
     for _, pid in ipairs(pids) do
-        -- 使用库的静态方法直接终止 PID
         if not proc.terminate_by_pid(pid, 0) then
             log.warn("Failed to terminate PID: ", pid)
             all_ok = false
@@ -103,23 +98,55 @@ function M.kill_all_by_name(process_name)
 end
 
 ---
--- 异步等待进程退出 (供 await 使用)
+-- [异步] 等待进程退出 (供 await 使用)
+-- 使用 C++ 线程池，不阻塞 Lua VM，但也不泵送消息（因为是在后台线程等待）
 -- @param co coroutine: 当前协程
 -- @param process_obj table: proc_utils 对象
 function M.wait_for_exit(co, process_obj)
     if not process_obj then error("wait_for_exit called with nil process object") end
-    
-    -- 获取非拥有型句柄传递给 C++ 线程池
-    -- 注意：调用者必须保证 process_obj 在等待期间不被 GC，
-    -- 这通常由 await 调用栈中的局部变量引用保证。
     local waitable = M.get_waitable_handle(process_obj)
-    
     if not waitable then
         log.warn("wait_for_exit: Process object has no valid handle.")
-        -- 依然派发，让 worker 报错而不是挂起协程
     end
-    
     native.dispatch_worker("process_wait_worker", waitable, co)
+end
+
+---
+-- [同步] 带消息泵的等待 (UI Friendly Blocking Wait)
+-- 专用于 init.lua 等主线程脚本，防止在等待时界面冻结。
+-- @param process_obj table: proc_utils 对象
+-- @param timeout_ms number: 超时毫秒数，-1 为无限
+-- @return boolean: true 表示进程已退出，false 表示超时
+function M.wait_for_exit_pump(process_obj, timeout_ms)
+    if not process_obj or not process_obj.wait_for_exit then 
+        log.error("wait_for_exit_pump: Invalid process object.")
+        return false 
+    end
+
+    timeout_ms = timeout_ms or -1
+    local start_tick = kernel32.GetTickCount()
+    
+    while true do
+        -- 1. 非阻塞检查进程状态 (传入 0 表示立即返回)
+        -- proc_utils_ffi 的 wait_for_exit 封装了 WaitForSingleObject
+        if process_obj:wait_for_exit(0) then
+            return true
+        end
+        
+        -- 2. 检查超时
+        if timeout_ms >= 0 then
+            local current_tick = kernel32.GetTickCount()
+            -- 处理 GetTickCount 溢出 (49.7天) 的简单回绕逻辑
+            local elapsed = current_tick - start_tick
+            if elapsed > timeout_ms then
+                return false
+            end
+        end
+        
+        -- 3. 睡眠并泵送消息
+        -- native.sleep 内部使用 MsgWaitForMultipleObjects，保证 UI 不卡死
+        native.sleep(50)
+    end
 end
 
 -- ============================================================
@@ -127,7 +154,6 @@ end
 -- ============================================================
 
 function M.get_self_path()
-    -- 继续使用 kernel32 插件，因为 proc_utils 主要关注外部进程
     local buf = ffi.new("wchar_t[?]", 260)
     if kernel32.GetModuleFileNameW(nil, buf, 260) > 0 then
         return ffi.from_wide(buf)
@@ -147,7 +173,6 @@ function M.get_current_pid()
 end
 
 function M.open_by_name(name)
-    -- 兼容旧接口
     return proc.open_by_name(name)
 end
 
@@ -174,8 +199,8 @@ M.__commands = {
         
         if p_obj then
             if wait_for_exit then
-                -- 使用 proc_utils 提供的同步等待方法 (-1 = INFINITE)
-                p_obj:wait_for_exit(-1)
+                -- CLI 模式下也建议使用带泵的等待
+                M.wait_for_exit_pump(p_obj, -1)
             end
             return 0
         end
@@ -204,7 +229,6 @@ M.__commands = {
         for _, target in ipairs(targets) do
             local p_obj = M.find(target)
             if p_obj then
-                -- 使用 proc_utils 的 terminate_tree 方法
                 if not p_obj:terminate_tree() then all_ok = false end
             else
                 log.warn("Process not found: ", target)

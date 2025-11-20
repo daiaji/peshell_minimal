@@ -5,6 +5,7 @@ local ffi = _G.pesh.ffi
 
 ffi.define("winapi.kernel32", [[
     void Sleep(int ms);
+    unsigned long GetTickCount(void);
     unsigned int GetCurrentProcessId();
     unsigned int GetProcessId(void* hProcess);
     int GetModuleFileNameW(void* hModule, wchar_t* lpFilename, int nSize);
