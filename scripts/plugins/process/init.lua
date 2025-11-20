@@ -1,5 +1,6 @@
 -- scripts/plugins/process/init.lua
--- Process 插件 (v5.0 - Native proc_utils_ffi Adapter)
+-- Process 插件 (v5.1 - Native proc_utils_ffi Adapter)
+-- 修复：使用 ffi.define 替代 ffi.cdef
 
 local pesh = _G.pesh
 local M = {}
@@ -18,10 +19,11 @@ if not status then
 end
 
 -- 3. 定义非拥有型句柄结构
--- 用于将句柄值传递给 C++ 线程池，而不干扰 Lua 对象的 GC 生命周期
-ffi.cdef[[
+-- [FIX] 使用 ffi.define 而不是 ffi.cdef，因为 pesh.ffi 不直接暴露 cdef
+ffi.define("process_plugin_non_owning_handle", [[
     typedef struct { void* h; } NonOwningHandle_t;
-]]
+]])
+
 local non_owning_mt = {} 
 local NonOwningHandle = ffi.metatype("NonOwningHandle_t", non_owning_mt)
 
