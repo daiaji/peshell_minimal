@@ -40,7 +40,6 @@ jobs:
         shell: cmd
         run: |
           cd %LUAJIT_SRC_DIR%
-          rem 使用 msvcbuild.bat 默认编译 (通常是 /MD)
           call msvcbuild.bat gc64
           
           mkdir "%LUAJIT_BIN_DIR%\bin"
@@ -51,8 +50,12 @@ jobs:
           copy luajit.exe "%LUAJIT_BIN_DIR%\bin\"
           copy lua51.lib "%LUAJIT_BIN_DIR%\lib\"
           
-          rem [修正] 显式复制 lua.hpp，因为 lua*.h 不包含它
-          copy lua*.h "%LUAJIT_BIN_DIR%\include\"
+          rem [修复] 显式复制所有标准头文件，防止遗漏 lauxlib.h
+          copy lua.h "%LUAJIT_BIN_DIR%\include\"
+          copy lualib.h "%LUAJIT_BIN_DIR%\include\"
+          copy lauxlib.h "%LUAJIT_BIN_DIR%\include\"
+          copy luaconf.h "%LUAJIT_BIN_DIR%\include\"
+          copy luajit.h "%LUAJIT_BIN_DIR%\include\"
           copy lua.hpp "%LUAJIT_BIN_DIR%\include\"
 
       # 3. 编译 PEShell Host
@@ -61,7 +64,7 @@ jobs:
           cmake -S . -B build -G "Ninja" -DCMAKE_BUILD_TYPE=Release
           cmake --build build --config Release
 
-      # 4. 组装最终包 (Artifact Assembly)
+      # 4. 组装最终包
       - name: Assemble Package
         shell: pwsh
         run: |
@@ -70,31 +73,26 @@ jobs:
           $lua = New-Item -ItemType Directory -Path "$pkg/share/lua/5.1"
           $lib = New-Item -ItemType Directory -Path "$lua/lib"
 
-          # A. 二进制文件
+          # A. 二进制
           Copy-Item "build/bin/peshell.exe" $bin
           Copy-Item "${{ env.LUAJIT_BIN_DIR }}\bin\lua51.dll" $bin
           Copy-Item "start_peshell_main.bat" $pkg
 
-          # B. 项目脚本
+          # B. 脚本
           Copy-Item "scripts/core", "scripts/plugins", "scripts/*.lua" $lua -Recurse
 
-          # C. 第三方纯 Lua 库
-          # 1. lua-ext -> lib/ext
+          # C. 纯 Lua 依赖库
           Copy-Item "vendor/lua-ext" "$lib/ext" -Recurse -Exclude .git,vendor
-          # 2. lua-ffi-bindings -> lib/ffi
           Copy-Item "vendor/lua-ffi-bindings" "$lib/ffi" -Recurse -Exclude .git,vendor
-          # 3. proc_utils_ffi -> lib/
           Copy-Item "vendor/proc_utils/proc_utils_ffi.lua" $lib
-          # 4. lfs_ffi -> lib/
           Copy-Item "vendor/lfs/lfs_ffi.lua" $lib
 
-          # D. VC++ Runtime (PE 兼容性必需)
+          # D. VC++ Runtime
           $vctools = $env:VCToolsRedistDir
           $crt = Join-Path $vctools "x64/Microsoft.VC14*.CRT"
           Write-Host "Copying CRT from $crt"
           Copy-Item "$crt/*.dll" $bin -Force
 
-          # 设置环境变量供后续步骤使用
           echo "PACKAGE_PATH=$pkg" >> $env:GITHUB_ENV
 
       # 5. 冒烟测试
