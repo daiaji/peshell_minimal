@@ -1,6 +1,6 @@
 -- scripts/plugins/fs/init.lua
 -- 文件系统插件 (Lua-Ext & FFI Edition)
--- Fixed: Use static path functions instead of missing object methods
+-- Version: 8.0 (Refactored to use enhanced ext.path object)
 
 local M = {}
 local log = _G.log
@@ -17,6 +17,7 @@ local k32 = ffi.load("kernel32")
 M.read_file = io_ext.readfile
 M.write_file = io_ext.writefile
 
+-- 直接映射 path 类的静态方法，兼容旧习惯
 M.exists = path.exists
 M.is_dir = path.isdir
 M.is_file = path.isfile
@@ -30,14 +31,15 @@ end
 
 function M.list_files(p)
     local res = {}
-    local parent_str = tostring(p)
-    local iter, obj = os_ext.listdir(parent_str)
+    local p_obj = path(p)
+    
+    -- os.listdir 返回字符串迭代器
+    local iter, obj_iter = os_ext.listdir(p_obj.path)
     if not iter then return res end
     
-    for f in iter, obj do
-        local full_path = path(parent_str) / f
-        -- [FIX] Use static path.isfile as object method might be missing
-        if path.isfile(tostring(full_path)) then
+    for f in iter, obj_iter do
+        -- 使用 / 运算符拼接，使用 :isfile() 方法
+        if (p_obj / f):isfile() then
             table.insert(res, f)
         end
     end
@@ -46,20 +48,20 @@ end
 
 function M.list_dirs(p)
     local res = {}
-    local parent_str = tostring(p)
-    local iter, obj = os_ext.listdir(parent_str)
+    local p_obj = path(p)
+    
+    local iter, obj_iter = os_ext.listdir(p_obj.path)
     if not iter then return res end
 
-    for f in iter, obj do
-        local full_path = path(parent_str) / f
-        -- [FIX] isdir is usually available as object method in ext.path, but static is safer if unsure
-        if path.isdir(tostring(full_path)) then
+    for f in iter, obj_iter do
+        if (p_obj / f):isdir() then
             table.insert(res, f)
         end
     end
     return res
 end
 
+-- [Internal] FFI CopyFileW Wrapper
 local function copy_file_internal(src, dst, fail_if_exists)
     local CP_UTF8 = 65001
     local function to_w(s)
@@ -81,40 +83,40 @@ local function copy_file_internal(src, dst, fail_if_exists)
 end
 
 function M.copy(src, dst)
-    local src_str = tostring(src)
-    local dst_str = tostring(dst)
-    local src_p = path(src_str)
-    local dst_p = path(dst_str)
+    local src_p = path(src)
+    local dst_p = path(dst)
     
-    if not src_p:exists() then return false, "Source not found: " .. src_str end
+    if not src_p:exists() then 
+        return false, "Source not found: " .. src_p.path 
+    end
     
-    -- [FIX] Use static isfile
-    if path.isfile(src_str) then
+    if src_p:isfile() then
         if dst_p:isdir() then
-            -- [FIX] path object might not have name(), use basename
-            local name = path(src_str):name() -- Try object method first, ext.path usually has name or basename
-            if not name then name = path.basename(src_str) end
+            -- 尝试获取文件名：使用 ext.path 的 getdir 或 basename
+            -- 由于 ext.path 设计比较独特，这里手动处理最稳妥
+            local name = src_p.path:match("[^/\\]+$")
             dst_p = dst_p / name
         end
-        return copy_file_internal(src_str, tostring(dst_p), false)
+        -- 传递字符串给 FFI
+        return copy_file_internal(src_p.path, dst_p.path, false)
     
     elseif src_p:isdir() then
-        if not dst_p:exists() then M.mkdir(dst_str) end
+        if not dst_p:exists() then M.mkdir(dst_p.path) end
         
-        local iter, obj = lfs.dir(src_str)
+        local iter, obj_iter = lfs.dir(src_p.path)
         if not iter then return false, "Failed to list source directory" end
 
-        for name in iter, obj do
+        for name in iter, obj_iter do
             if name ~= "." and name ~= ".." then
                 local s = src_p / name
                 local d = dst_p / name
-                local ok, err = M.copy(tostring(s), tostring(d))
+                local ok, err = M.copy(s, d) -- 递归调用
                 if not ok then return false, err end
             end
         end
         return true
     else
-        return false, "Unknown file type: " .. src_str
+        return false, "Unknown file type: " .. src_p.path
     end
 end
 
@@ -123,24 +125,23 @@ function M.move(src, dst)
 end
 
 function M.delete(target)
-    local p_str = tostring(target)
-    local p = path(p_str)
+    local p = path(target)
     if not p:exists() then return true end
 
     if p:isdir() then
-        local iter, obj = lfs.dir(p_str)
+        local iter, obj_iter = lfs.dir(p.path)
         if iter then
-            for name in iter, obj do
+            for name in iter, obj_iter do
                 if name ~= "." and name ~= ".." then
                     local child = p / name
-                    local ok, err = M.delete(tostring(child))
+                    local ok, err = M.delete(child)
                     if not ok then return false, err end
                 end
             end
         end
-        return os_ext.rmdir(p_str)
+        return os_ext.rmdir(p.path)
     else
-        return os_ext.remove(p_str)
+        return os_ext.remove(p.path)
     end
 end
 

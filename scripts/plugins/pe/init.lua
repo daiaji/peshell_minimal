@@ -1,5 +1,6 @@
 -- scripts/plugins/pe/init.lua
--- PE 环境初始化插件 (Lua-Ext Edition)
+-- PE 环境初始化插件 (Lua-Ext & FFI Edition)
+-- Version: 8.0 (Updated with path object usage)
 
 local pesh = _G.pesh
 local M = {}
@@ -15,6 +16,8 @@ require("ffi.req")("Windows.sdk.advapi32")
 ffi.cdef[[
     long RegInstallW(void* hMod, const wchar_t* pszSection, const void* pstTable);
     long CoInitialize(void* pvReserved);
+    void* LoadLibraryW(const wchar_t* lpLibFileName);
+    int FreeLibrary(void* hLibModule);
 ]]
 local k32 = ffi.load("kernel32")
 local advpack = ffi.load("advpack")
@@ -35,12 +38,14 @@ function M.initialize()
         "SendTo", "AppData/Roaming/Microsoft/Internet Explorer/Quick Launch"
     }
     
+    -- Use path object root
+    local root = path(user_profile)
+    
     for _, subdir in ipairs(directories) do
-        local p = path(user_profile) / subdir
-        -- [FIX] Use tostring(p)
-        if not os_ext.mkdir(tostring(p), true) then
+        local p = root / subdir
+        if not os_ext.mkdir(p.path, true) then
             if not p:isdir() then
-                log.warn("Could not create directory: ", tostring(p))
+                log.warn("Could not create directory: ", p.path)
             end
         end
     end

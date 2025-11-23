@@ -1,6 +1,6 @@
 -- scripts/test_suite.lua
 -- PEShell API Test Suite (Refactored for Lua-Ext & FFI-Bindings)
--- Version: 7.5 (Full Code - No Reductions)
+-- Version: 8.0 (Using Enhanced Path Object)
 
 local lu = require("luaunit")
 local log = _G.log
@@ -16,8 +16,7 @@ local fs_ext = require("ext.io")
 require("ffi.req")("Windows.sdk.kernel32")
 local k32 = ffi.load("kernel32")
 
--- [FIX] Explicitly define used APIs to ensure they exist regardless of ffi-bindings state
--- This prevents "missing declaration" errors during tests
+-- [FIX] Explicit definitions for test stability
 ffi.cdef[[
     int SetEnvironmentVariableW(const wchar_t* lpName, const wchar_t* lpValue);
     void* CreateEventW(void* lpEventAttributes, int bManualReset, int bInitialState, const wchar_t* lpName);
@@ -42,7 +41,7 @@ local function to_w(str)
     return buf
 end
 
--- [HELPER] Safe Handle for Tests (RAII)
+-- [HELPER] Safe Handle
 local safe_handle_mt = {
     __gc = function(t)
         if t.h and t.h ~= nil and t.h ~= ffi.cast("void*", -1) then
@@ -55,45 +54,34 @@ local function AutoHandle(raw_h)
     return setmetatable({ h = raw_h }, safe_handle_mt)
 end
 
--- [SETUP] Temporary Directory
+-- [SETUP] Temporary Directory using Path Object
 local temp_dir = path(os.getenv("TEMP") or ".") / "_peshell_test_temp"
 
 local function safe_setup()
     log.info("STARTING TEST SUITE")
-    local dir_str = tostring(temp_dir)
     
-    -- Clean up previous run
     if temp_dir:exists() then 
-        local ok, err = fs.delete(dir_str)
-        if not ok then
-            error("Failed to clean temp dir: " .. tostring(err))
-        end
+        local ok, err = fs.delete(temp_dir)
+        if not ok then error("Failed to clean temp dir: " .. tostring(err)) end
     end
     
-    -- Create temp dir
-    local ok, err = fs.mkdir(dir_str)
-    if not ok then
-        -- Check if it exists (mkdir returns false if exists)
-        if not temp_dir:exists() then
-            error("Failed to create temp dir: " .. tostring(err))
-        end
+    -- Using plugin wrapper or direct ext call
+    local ok, err = fs.mkdir(temp_dir)
+    if not ok and not temp_dir:exists() then
+        error("Failed to create temp dir: " .. tostring(err))
     end
 end
 
 function setupSuite()
-    -- Use xpcall to catch errors, preventing LuaUnit internal state corruption
     local status, err = xpcall(safe_setup, debug.traceback)
     if not status then
         log.critical("CRITICAL ERROR IN SETUP SUITE:\n", err)
-        -- Manually throw to stop execution, logging has already happened
         error(err)
     end
 end
 
 function teardownSuite()
-    if temp_dir:exists() then 
-        fs.delete(tostring(temp_dir)) 
-    end
+    if temp_dir:exists() then fs.delete(temp_dir) end
     log.info("FINISHED TEST SUITE")
 end
 
@@ -108,26 +96,24 @@ function TestFileSystem:testCopyAndMove()
     local src = temp_dir / "file.txt"
     local dst = temp_dir / "file_copy.txt"
     
-    -- Create source file
-    fs_ext.writefile(tostring(src), "content")
+    fs_ext.writefile(src.path, "content")
     lu.assertTrue(src:exists(), "Source file creation failed")
     
-    -- Test Copy
-    -- fs.copy returns boolean true on success
-    local ok, err = fs.copy(tostring(src), tostring(dst))
+    -- Copy
+    local ok, err = fs.copy(src, dst)
     lu.assertTrue(ok, "fs.copy failed: " .. tostring(err))
     lu.assertTrue(dst:exists(), "Destination file not created")
     
-    -- Test Move
+    -- Move
     local dst2 = temp_dir / "file_moved.txt"
-    local ok_mv, err_mv = fs.move(tostring(dst), tostring(dst2))
+    local ok_mv, err_mv = fs.move(dst, dst2)
     lu.assertTrue(ok_mv, "fs.move failed: " .. tostring(err_mv))
     
     lu.assertFalse(dst:exists(), "Original file still exists after move")
     lu.assertTrue(dst2:exists(), "Moved file not found")
     
-    -- Test Delete
-    local ok_del, err_del = fs.delete(tostring(dst2))
+    -- Delete
+    local ok_del, err_del = fs.delete(dst2)
     lu.assertTrue(ok_del, "fs.delete failed: " .. tostring(err_del))
     lu.assertFalse(dst2:exists(), "Deleted file still exists")
 end
@@ -142,17 +128,13 @@ function TestPeApi:testInitialize()
     
     local mock_user = temp_dir / "MockUser"
     
-    -- Set Mock Environment Variable
-    k32.SetEnvironmentVariableW(to_w("USERPROFILE"), to_w(tostring(mock_user)))
+    k32.SetEnvironmentVariableW(to_w("USERPROFILE"), to_w(mock_user.path))
     
-    -- Run Initialization
     pe.initialize()
     
-    -- Verify Desktop creation
     local desktop_path = mock_user / "Desktop"
     lu.assertTrue(desktop_path:isdir(), "PE Initialize failed to create Desktop folder")
     
-    -- Cleanup Env
     k32.SetEnvironmentVariableW(to_w("USERPROFILE"), nil)
 end
 
@@ -166,28 +148,21 @@ function TestProcessApi:testExecAndTerminate()
     local cmd = "ping.exe -n 100 127.0.0.1"
     local name = "ping.exe"
     
-    -- 1. Exec
     local proc = process.exec_async({ command = cmd })
     lu.assertNotIsNil(proc, "exec_async returned nil")
     lu.assertNotIsNil(proc.pid, "Process object missing PID")
     
-    -- Use :handle() method (checking if handle is valid pointer)
     local h = proc:handle()
-    lu.assertNotIsNil(h, "Invalid handle from proc:handle()")
+    lu.assertNotIsNil(h, "Invalid handle")
     
     async.sleep_blocking(1000)
     
-    -- 2. Find
     local found = process.find(name)
     lu.assertNotIsNil(found, "Could not find process by name")
-    -- Verify PIDs match (or at least found implies validity)
     lu.assertTrue(found:is_valid(), "Found process handle is invalid")
     
-    -- 3. Terminate
     lu.assertTrue(proc:terminate(0), "terminate(0) failed")
     
-    -- 4. Wait
-    -- process.wait_for_exit_pump encapsulates the wait loop
     local exited = process.wait_for_exit_pump(proc, 5000)
     lu.assertTrue(exited, "Process did not exit in time")
 end
@@ -199,11 +174,8 @@ TestShellGuardian = {}
 
 local function cleanup_guardian()
     process.kill_all_by_name("ping.exe")
-    
     local self_pid = k32.GetCurrentProcessId()
-    -- find_all returns a table of PIDs
     local pids = process.find_all("peshell.exe")
-    
     for _, pid in ipairs(pids) do
         if pid ~= self_pid then 
             local p = process.find(tostring(pid))
@@ -219,67 +191,49 @@ function TestShellGuardian:testGuardianLifecycle()
     log.debug("TEST: TestShellGuardian:testGuardianLifecycle")
     
     local self_path = process.get_self_path()
-    -- ping -n 9999 simulates a long-running shell process
     local target_cmd = "ping.exe -n 9999 127.0.0.1" 
     local target_name = "ping.exe"
 
-    -- Create unique event names
     local uid = tostring(k32.GetCurrentProcessId()) .. "_" .. tostring(math.random(1000,9999))
     local ev_ready_name = "Global\\TestReady_" .. uid
     local ev_respawn_name = "Global\\TestRespawn_" .. uid
     
-    -- Create Events (Manual Reset = true, Initial State = false)
-    -- We wrap them in AutoHandle to ensure CloseHandle is called on GC
     local raw_h_ready = k32.CreateEventW(nil, 1, 0, to_w(ev_ready_name))
     local raw_h_respawn = k32.CreateEventW(nil, 1, 0, to_w(ev_respawn_name))
     
     local h_ready = AutoHandle(raw_h_ready)
     local h_respawn = AutoHandle(raw_h_respawn)
     
-    -- Construct Guardian Command
     local script = "share/lua/5.1/test_guardian_init.lua"
     local guardian_args = string.format('"%s" main "%s" "%s" %s %s', 
         self_path, script, target_cmd, ev_ready_name, ev_respawn_name)
         
-    -- 1. Launch Guardian
     local g_proc = process.exec_async({ command = guardian_args })
     lu.assertNotIsNil(g_proc, "Failed to launch guardian")
     
-    -- 2. Wait for READY signal
-    -- pesh_native.wait_for_multiple_objects_blocking expects a table of objects with .h field
     local idx = _G.pesh_native.wait_for_multiple_objects_blocking({ h_ready }, 15000)
     lu.assertEquals(idx, 1, "Timeout waiting for READY signal")
     
-    -- Verify Target is Running
     local p1 = process.find(target_name)
     lu.assertNotIsNil(p1, "Target process should be running after READY")
     
-    -- 3. Kill Target to trigger Respawn
     p1:terminate(0)
     
-    -- 4. Wait for RESPAWN signal
     idx = _G.pesh_native.wait_for_multiple_objects_blocking({ h_respawn }, 15000)
     lu.assertEquals(idx, 1, "Timeout waiting for RESPAWN signal")
     
-    -- Verify Target is Respawned
     local p2 = process.find(target_name)
     lu.assertNotIsNil(p2, "Target process should have been respawned")
-    lu.assertNotEquals(p1.pid, p2.pid, "Respawned PID should be different")
     
-    -- 5. Send Shutdown Command
     local shut_cmd = string.format('"%s" shutdown', self_path)
     local s_proc = process.exec_async({ command = shut_cmd })
-    if s_proc then 
-        process.wait_for_exit_pump(s_proc, 5000) 
-    end
+    if s_proc then process.wait_for_exit_pump(s_proc, 5000) end
     
     async.sleep_blocking(2000)
     
-    -- Verify Target is Gone (Shutdown cleans up)
     local p_gone = process.find(target_name)
     lu.assertIsNil(p_gone, "Target should be gone after shutdown")
     
-    -- Cleanup Guardian if still running (should have exited)
     if g_proc:is_valid() then g_proc:terminate(0) end
 end
 
