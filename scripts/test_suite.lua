@@ -1,22 +1,19 @@
 -- scripts/test_suite.lua
--- PEShell API Test Suite (Refactored for Lua-Ext & FFI-Bindings)
--- Version: 8.0 (Using Enhanced Path Object)
+-- PEShell API Test Suite (Refactored for Enhanced Path Object)
+-- Version: 9.0
 
 local lu = require("luaunit")
 local log = _G.log
 local pesh = _G.pesh
 local ffi = require("ffi")
 
--- [DEPENDENCY] Lua-Ext
 local path = require("ext.path")
 local os_ext = require("ext.os")
 local fs_ext = require("ext.io")
 
--- [DEPENDENCY] FFI Bindings
 require("ffi.req")("Windows.sdk.kernel32")
 local k32 = ffi.load("kernel32")
 
--- [FIX] Explicit definitions for test stability
 ffi.cdef[[
     int SetEnvironmentVariableW(const wchar_t* lpName, const wchar_t* lpValue);
     void* CreateEventW(void* lpEventAttributes, int bManualReset, int bInitialState, const wchar_t* lpName);
@@ -25,13 +22,11 @@ ffi.cdef[[
     unsigned long GetCurrentProcessId();
 ]]
 
--- [DEPENDENCY] Plugins
 local process = pesh.plugin.load("process")
 local pe = pesh.plugin.load("pe")
 local fs = pesh.plugin.load("fs")
 local async = pesh.plugin.load("async")
 
--- [HELPER] Unicode Conversion
 local function to_w(str)
     if not str then return nil end
     local CP_UTF8 = 65001
@@ -41,7 +36,6 @@ local function to_w(str)
     return buf
 end
 
--- [HELPER] Safe Handle
 local safe_handle_mt = {
     __gc = function(t)
         if t.h and t.h ~= nil and t.h ~= ffi.cast("void*", -1) then
@@ -54,7 +48,7 @@ local function AutoHandle(raw_h)
     return setmetatable({ h = raw_h }, safe_handle_mt)
 end
 
--- [SETUP] Temporary Directory using Path Object
+-- Use path object
 local temp_dir = path(os.getenv("TEMP") or ".") / "_peshell_test_temp"
 
 local function safe_setup()
@@ -65,8 +59,8 @@ local function safe_setup()
         if not ok then error("Failed to clean temp dir: " .. tostring(err)) end
     end
     
-    -- Using plugin wrapper or direct ext call
-    local ok, err = fs.mkdir(temp_dir)
+    -- Using path:mkdir method
+    local ok, err = temp_dir:mkdir(true)
     if not ok and not temp_dir:exists() then
         error("Failed to create temp dir: " .. tostring(err))
     end
@@ -96,15 +90,15 @@ function TestFileSystem:testCopyAndMove()
     local src = temp_dir / "file.txt"
     local dst = temp_dir / "file_copy.txt"
     
-    fs_ext.writefile(src.path, "content")
+    fs_ext.writefile(src:str(), "content")
     lu.assertTrue(src:exists(), "Source file creation failed")
     
-    -- Copy
+    -- Test Copy
     local ok, err = fs.copy(src, dst)
     lu.assertTrue(ok, "fs.copy failed: " .. tostring(err))
     lu.assertTrue(dst:exists(), "Destination file not created")
     
-    -- Move
+    -- Test Move
     local dst2 = temp_dir / "file_moved.txt"
     local ok_mv, err_mv = fs.move(dst, dst2)
     lu.assertTrue(ok_mv, "fs.move failed: " .. tostring(err_mv))
@@ -112,7 +106,7 @@ function TestFileSystem:testCopyAndMove()
     lu.assertFalse(dst:exists(), "Original file still exists after move")
     lu.assertTrue(dst2:exists(), "Moved file not found")
     
-    -- Delete
+    -- Test Delete
     local ok_del, err_del = fs.delete(dst2)
     lu.assertTrue(ok_del, "fs.delete failed: " .. tostring(err_del))
     lu.assertFalse(dst2:exists(), "Deleted file still exists")
@@ -125,10 +119,10 @@ TestPeApi = {}
 
 function TestPeApi:testInitialize()
     log.debug("TEST: TestPeApi:testInitialize")
-    
     local mock_user = temp_dir / "MockUser"
     
-    k32.SetEnvironmentVariableW(to_w("USERPROFILE"), to_w(mock_user.path))
+    -- Using :str() to pass to FFI helpers
+    k32.SetEnvironmentVariableW(to_w("USERPROFILE"), to_w(mock_user:str()))
     
     pe.initialize()
     

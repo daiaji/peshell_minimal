@@ -1,6 +1,6 @@
 -- scripts/plugins/pe/init.lua
--- PE 环境初始化插件 (Lua-Ext & FFI Edition)
--- Version: 8.0 (Updated with path object usage)
+-- PE 环境初始化插件 (Enhanced Path Edition)
+-- Version: 9.0
 
 local pesh = _G.pesh
 local M = {}
@@ -38,14 +38,15 @@ function M.initialize()
         "SendTo", "AppData/Roaming/Microsoft/Internet Explorer/Quick Launch"
     }
     
-    -- Use path object root
+    -- Root path object
     local root = path(user_profile)
     
     for _, subdir in ipairs(directories) do
         local p = root / subdir
-        if not os_ext.mkdir(p.path, true) then
+        -- Use path:mkdir method
+        if not p:mkdir(true) then
             if not p:isdir() then
-                log.warn("Could not create directory: ", p.path)
+                log.warn("Could not create directory: ", p:str())
             end
         end
     end
