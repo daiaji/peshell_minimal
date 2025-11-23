@@ -1,5 +1,6 @@
 -- scripts/plugins/process/init.lua
 -- Process 插件 (Lua-Ext & FFI-Bindings Edition)
+-- Version: 9.3 (Fix path method call)
 
 local pesh = _G.pesh
 local M = {}
@@ -114,7 +115,8 @@ function M.get_process_name_from_command(full_command)
     local shell = require("ffi.req")("Windows.sdk.shell32")
     local argv = shell.commandline_to_argv(full_command)
     if argv and argv[1] then
-        return path(argv[1]):basename()
+        -- [FIX] Use :name() instead of :basename() (not available in ext.path)
+        return path(argv[1]):name()
     end
     return nil
 end

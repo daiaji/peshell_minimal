@@ -1,6 +1,6 @@
 -- scripts/plugins/pe/init.lua
 -- PE 环境初始化插件 (Enhanced Path Edition)
--- Version: 9.2
+-- Version: 9.3 (Fix mkdir path separators)
 
 local pesh = _G.pesh
 local M = {}
@@ -42,9 +42,14 @@ function M.initialize()
     
     for _, subdir in ipairs(directories) do
         local p = root / subdir
-        if not p:mkdir(true) then
+        -- [FIX] Convert to string and force backslash for robustness with Windows API
+        local p_str = p:str():gsub("/", "\\")
+        
+        -- Try creating
+        if not os_ext.mkdir(p_str, true) then
+            -- Check if it actually failed (mkdir returns false if exists)
             if not p:isdir() then
-                log.warn("Could not create directory: ", p:str())
+                log.warn("Could not create directory: ", p_str, " ", tostring(k32.GetLastError()))
             end
         end
     end
