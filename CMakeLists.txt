@@ -37,7 +37,8 @@ target_link_libraries(luajit INTERFACE ${LUAJIT_LIBRARY})
 add_executable(peshell src/main.cpp src/logging.cpp)
 
 if(MSVC)
-    target_compile_options(peshell PRIVATE /W4 /wd4100)
+    # [修正] 增加 /utf-8 以解决 spdlog/fmt 的静态断言错误
+    target_compile_options(peshell PRIVATE /W4 /wd4100 /utf-8)
 endif()
 
 target_link_libraries(peshell PRIVATE 

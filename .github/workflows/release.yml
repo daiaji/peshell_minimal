@@ -53,7 +53,10 @@ jobs:
           copy lua51.dll "%LUAJIT_BIN_DIR%\bin\"
           copy luajit.exe "%LUAJIT_BIN_DIR%\bin\"
           copy lua51.lib "%LUAJIT_BIN_DIR%\lib\"
+          
+          rem [修正] 显式复制 lua.hpp
           copy lua*.h "%LUAJIT_BIN_DIR%\include\"
+          copy lua.hpp "%LUAJIT_BIN_DIR%\include\"
 
       - name: Build PEShell
         run: |
@@ -84,7 +87,7 @@ jobs:
           # Scripts
           Copy-Item "scripts/core", "scripts/plugins", "scripts/*.lua" $lua -Recurse
           
-          # Libraries (Including lfs_ffi fix)
+          # Libraries
           Copy-Item "vendor/lua-ext" "$lib/ext" -Recurse -Exclude .git,vendor
           Copy-Item "vendor/lua-ffi-bindings" "$lib/ffi" -Recurse -Exclude .git,vendor
           Copy-Item "vendor/proc_utils/proc_utils_ffi.lua" $lib

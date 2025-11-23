@@ -17,14 +17,12 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          # 仅拉取顶层 submodule (lua-ext, ffi-bindings)
-          # 防止递归拉取不必要的深层依赖
           submodules: 'true'
 
       - name: Setup MSVC
         uses: ilammy/msvc-dev-cmd@v1
 
-      # 1. 依赖管理 (下载 ctpl, spdlog, proc_utils_ffi, lfs_ffi)
+      # 1. 依赖管理
       - name: Update Header-Only & Script Deps
         shell: pwsh
         run: .\update_vendor.ps1
@@ -35,7 +33,6 @@ jobs:
         uses: actions/cache@v3
         with:
           path: ${{ env.LUAJIT_BIN_DIR }}
-          # Cache key 包含 commit hash，确保 submodule 更新时重新编译
           key: ${{ runner.os }}-luajit-md-${{ hashFiles('vendor/luajit/.git') }}
 
       - name: Build LuaJIT (Dynamic CRT)
@@ -53,7 +50,10 @@ jobs:
           copy lua51.dll "%LUAJIT_BIN_DIR%\bin\"
           copy luajit.exe "%LUAJIT_BIN_DIR%\bin\"
           copy lua51.lib "%LUAJIT_BIN_DIR%\lib\"
+          
+          rem [修正] 显式复制 lua.hpp，因为 lua*.h 不包含它
           copy lua*.h "%LUAJIT_BIN_DIR%\include\"
+          copy lua.hpp "%LUAJIT_BIN_DIR%\include\"
 
       # 3. 编译 PEShell Host
       - name: Build PEShell
@@ -78,7 +78,7 @@ jobs:
           # B. 项目脚本
           Copy-Item "scripts/core", "scripts/plugins", "scripts/*.lua" $lua -Recurse
 
-          # C. 第三方纯 Lua 库 (Critical Step)
+          # C. 第三方纯 Lua 库
           # 1. lua-ext -> lib/ext
           Copy-Item "vendor/lua-ext" "$lib/ext" -Recurse -Exclude .git,vendor
           # 2. lua-ffi-bindings -> lib/ffi
