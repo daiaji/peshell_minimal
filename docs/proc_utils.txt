@@ -1,242 +1,211 @@
-Proc-Utils-FFI 开发者技术参考文档
-版本：3.1.0
+Proc-Utils-FFI 开发者技术参考手册
+================================================================================
+版本：3.3.5
+代号：Refactored / PEShell-Ready
 适用环境：Windows / LuaJIT 2.1
-文档生成时间：2025-11-20
-
+依赖库：lua-ffi-bindings (Standard PEShell/ffi Structure)
+文档更新日期：2025-11-23
 ================================================================================
+
 1. 项目概述
-================================================================================
-
-Proc-Utils-FFI 是一个专为 Windows 平台设计的、基于 LuaJIT FFI 技术的高性能进程管理库。该项目在 V3 版本后已完全重构为纯面向对象 (OOP) 接口，旨在提供与 C++ 版本 (proc-utils) 等价的功能，但完全移除编译步骤，仅依赖 LuaJIT 运行时环境。
-
-设计哲学：
-1. 纯粹的 OOP 接口：所有进程操作均通过 Process 对象完成，不再暴露底层的 C-API 风格函数。
-2. 零编译依赖：仅通过 proc_utils_ffi.lua 单文件分发，利用 FFI 直接调用 Kernel32/Ntdll/Psapi/Wtsapi32 等系统 DLL。
-3. 资源自动管理 (RAII)：通过 Lua 的 __gc 元方法实现 Windows 内核句柄 (HANDLE) 的自动关闭，从根本上防止资源泄漏。
-4. 完备的 Unicode 支持：内部全链路使用 WCHAR (UTF-16LE)，并在 API 边界处自动与 Lua 的 UTF-8 字符串进行转换。
-5. Lua 风格的错误处理：所有可能失败的函数和方法均返回 (result, err_code, err_msg) 的标准模式。
-
-================================================================================
-2. 核心架构与实现细节
-================================================================================
-
-2.1 文件结构
 --------------------------------------------------------------------------------
-- proc_utils_ffi.lua: 核心库文件。包含所有 FFI 定义、内部辅助函数以及公共的 OOP API。
-- tests/proc_utils_spec.lua: 基于 luaunit 的单元测试套件，全面覆盖所有公共 API。
-- run_tests.ps1: Windows PowerShell 测试运行脚本，支持一键启动测试和性能分析。
-- .github/workflows/ci.yml: Github Actions 配置文件，负责自动化构建 LuaJIT 依赖并运行测试。
+Proc-Utils-FFI 是一个专为 Windows 平台设计的、基于 LuaJIT FFI 技术的高性能进程管理库。
+它是原 C++ 扩展库的纯 Lua 重构版本，旨在提供无编译依赖的系统级进程控制能力。
 
-2.2 内部层级划分
+主要特性：
+- 纯 Lua 实现：零 C 语言编译依赖，直接通过 FFI 调用 Kernel32/Ntdll/Psapi/Wtsapi32。
+- 面向对象设计：提供 Process 对象封装，简化句柄管理。
+- 资源安全 (RAII)：支持通过 Lua GC 自动回收内核句柄，同时新增显式 close() 方法支持确定性资源释放。
+- 深度信息获取：支持跨进程读取命令行 (基于 PEB 解析)、内存使用量、线程数等。
+- 提权执行：内置 Session 0 隔离穿透能力，支持以 SYSTEM 权限启动交互式进程。
+- Unicode 就绪：全链路采用 WCHAR (UTF-16LE) 处理，完美支持中文路径与参数。
+
+2. 安装与部署
 --------------------------------------------------------------------------------
-模块内部逻辑严格分为三层，仅最后一层对外暴露：
+本库依赖于特定的 FFI 绑定库结构（PEShell 标准结构）。
 
-第一层：FFI 定义层 (ffi.cdef)
-位于文件头部，定义了所有必要的 Windows 数据结构（如 PROCESSENTRY32W, STARTUPINFOW, PEB）和函数原型。所有字符串相关的 API 均使用宽字符版本（以 W 结尾），确保 Unicode 兼容性。
+2.1 文件结构要求
+确保你的项目目录包含以下结构，以便 require 能够正确加载：
 
-第二层：内部辅助函数层 (local functions)
-这些函数是模块内部的实现细节，不对外暴露。
-- wstr_to_str / str_to_wstr: 处理 Lua 字符串 (UTF-8) 与 Windows WCHAR (UTF-16) 之间的核心转换逻辑。
-- forEachProcess: 封装 CreateToolhelp32Snapshot 和 Process32NextW 的遍历逻辑，供进程查找功能使用。
-- getProcessCommandLine: 实现了跨进程读取命令行的高级功能。
-- formatWinError: 调用 FormatMessageW 将 GetLastError 的数字码转换为人类可读的错误信息字符串。
-- _createProcess, _getProcessInfo 等：所有以下划线开头的函数均为内部实现，是 OOP 接口的底层基础。
+/ (项目根目录)
+  |-- proc_utils_ffi.lua  (本库)
+  |-- lib/
+      |-- ffi/
+          |-- Windows/
+              |-- sdk/
+                  |-- kernel32.lua
+                  |-- psapi.lua
+                  |-- advapi32.lua
+                  |-- wtsapi32.lua
+                  |-- userenv.lua
+                  |-- ntdll.lua
 
-第三层：公共 OOP 接口层 (Public API)
-这是库的唯一公共接口，由一系列工厂函数和 Process 对象组成。
-- 工厂函数 (proc.exec, proc.open_by_pid 等) 负责创建或获取 Process 对象的实例。
-- Process 对象封装了进程句柄 (HANDLE) 和 PID，其所有方法用于对该特定进程进行操作。
+2.2 引入方式
+local proc = require("proc_utils_ffi")
 
-2.3 关键技术实现
+3. API 接口参考
 --------------------------------------------------------------------------------
+凡是涉及系统调用的 API，返回值均遵循以下统一模式：
+- 成功：返回 Process 对象、true 或 具体数据。
+- 失败：返回 nil, error_code (number), error_message (string)。
 
-[远程进程命令行获取]
-Windows API GetCommandLineW 只能获取当前进程的命令行。为获取任意进程的命令行，本库实现了读取其进程环境块 (PEB) 的逻辑：
-1. 调用 NtQueryInformationProcess 获取目标进程的 PEB 地址。
-2. 使用 ReadProcessMemory 读取 PEB 结构，找到 ProcessParameters 指针。
-3. 再次使用 ReadProcessMemory 读取 RTL_USER_PROCESS_PARAMETERS 结构，并从中获取 CommandLine 缓冲区的地址和长度。
-4. 最后读取命令行内容并转换为 Lua 字符串。
-此操作需要 PROCESS_VM_READ 和 PROCESS_QUERY_INFORMATION 权限。
+3.1 工厂函数 (创建或打开进程)
 
-[SYSTEM 权限进程创建]
-proc.exec_as_system 实现了复杂的令牌 (Token) 模拟和提升流程，以便在当前活动桌面以 SYSTEM 用户身份创建进程：
-1. WTSGetActiveConsoleSessionId: 获取当前物理控制台的会话 ID。
-2. WTSQueryUserToken: 获取与该会话关联的活动用户的令牌。
-3. DuplicateTokenEx: 复制该用户令牌，创建一个可用于 CreateProcessAsUserW 的主令牌。
-4. CreateEnvironmentBlock: 为新进程创建适当的环境变量块。
-5. CreateProcessAsUserW: 使用复制的主令牌和环境块来创建新进程。
+proc.exec(command, [working_dir], [show_mode], [desktop_name])
+    描述：创建并启动一个新进程。
+    参数：
+        command (string): 完整的命令行字符串。
+        working_dir (string, 可选): 工作目录。
+        show_mode (number, 可选): 窗口显示模式，默认 SW_SHOW (5)。
+        desktop_name (string, 可选): 指定桌面，例如 "winsta0\default"。
+    返回：成功返回 Process 对象，失败返回 nil 及错误信息。
 
-================================================================================
-3. API 接口规范
-================================================================================
+proc.exec_as_system(command, [working_dir], [show_mode])
+    描述：模拟 SYSTEM 权限在当前活动用户的会话中启动进程（绕过 Session 0 隔离）。
+    场景：通常用于服务程序需要启动用户可见的 GUI 程序时。
+    返回：成功返回 Process 对象，失败返回 nil 及错误信息。
 
-3.1 工厂函数 (Factory Functions)
---------------------------------------------------------------------------------
+proc.open_by_pid(pid, [access])
+    描述：通过 PID 打开已存在的进程。
+    参数：
+        pid (number): 目标进程 ID。
+        access (number, 可选): 访问权限，默认为 PROCESS_ALL_ACCESS。
+    返回：Process 对象。
 
-proc.exec(command, working_dir, show_mode)
-- 描述：创建并启动一个新进程。
-- 参数：
-  - command (string): 要执行的完整命令行。
-  - working_dir (string, optional): 进程的工作目录。
-  - show_mode (number, optional): 窗口显示模式，默认为 SW_SHOW。可使用 proc.constants.*。
-- 返回：成功则返回 Process 对象；失败则返回 nil, error_code, error_message。
-
-proc.exec_as_system(command, working_dir, show_mode)
-- 描述：以 SYSTEM 权限在当前活动桌面创建新进程。
-- 返回：成功则返回 Process 对象；失败则返回 nil, error_code, error_message。
-
-proc.open_by_pid(pid, access)
-- 描述：通过进程 ID (PID) 打开一个已存在的进程。
-- 参数：
-  - pid (number): 目标进程的 PID。
-  - access (number, optional): 请求的访问权限，默认为 PROCESS_ALL_ACCESS。
-- 返回：成功则返回 Process 对象；失败则返回 nil, error_code, error_message。
-
-proc.open_by_name(name, access)
-- 描述：通过可执行文件名打开第一个找到的进程。
-- 返回：成功则返回 Process 对象；失败则返回 nil, error_code, error_message。
+proc.open_by_name(exe_name, [access])
+    描述：通过可执行文件名（如 "notepad.exe"）打开第一个匹配的进程。
+    返回：Process 对象。
 
 proc.current()
-- 描述：获取代表当前 LuaJIT 脚本所在进程的 Process 对象。
-- 返回：一个 Process 对象。
+    描述：获取当前脚本所在进程的 Process 对象。
+    返回：Process 对象。
 
-3.2 静态工具函数 (Static Utility Functions)
---------------------------------------------------------------------------------
+3.2 静态工具函数 (无需对象即可调用)
 
-proc.exists(name_or_pid)
-- 描述：检查指定名称或 PID 的进程是否存在。
-- 返回：如果存在，返回其 PID (一个大于 0 的数字)；否则返回 0。
+proc.exists(pid_or_name)
+    描述：检查进程是否存在。
+    参数：可以是 PID (number) 或 进程名 (string)。
+    返回：如果存在返回其 PID，否则返回 0。
 
-proc.find_all(name)
-- 描述：查找所有与指定名称匹配的进程。
-- 返回：一个包含所有匹配 PID 的 table (数组)；如果查找失败，返回 nil, err_code, err_msg。
+proc.find_all(process_name)
+    描述：查找所有匹配该名称的进程 PID。
+    返回：PID 数组表 {1024, 2048, ...}。若无匹配返回空表。
 
-proc.terminate_by_pid(pid, exit_code)
-- 描述：直接通过 PID 终止一个进程。
-- 返回：成功返回 true；失败返回 false。
+proc.terminate_by_pid(pid, [exit_code])
+    描述：直接通过 PID 终止进程。
+    返回：boolean (成功/失败)。
 
-proc.wait(process_name, timeout_ms)
-- 描述：等待一个指定名称的进程出现。
-- 返回：成功则返回该进程的 PID；超时或失败则返回 nil, error_code, error_message。
+proc.wait(process_name, [timeout_ms])
+    描述：阻塞等待直到指定名称的进程出现。
+    参数：timeout_ms 默认为 -1 (无限等待)。
+    返回：成功返回 PID，超时返回 nil。
 
-proc.wait_close(name_or_pid, timeout_ms)
-- 描述：等待一个指定名称或 PID 的进程关闭。
-- 返回：成功关闭或进程本不存在则返回 true；超时或失败返回 false。
+proc.wait_close(pid_or_name, [timeout_ms])
+    描述：阻塞等待直到指定进程结束或消失。
+    原理：使用 SYNCHRONIZE 权限打开句柄并等待信号，比轮询更高效。
+    返回：true 表示进程已结束，false 表示等待超时。
 
 3.3 Process 对象方法
+Process 对象持有 Windows 内核句柄。
+
+:close()
+    [v3.3.5 新增]
+    描述：显式关闭底层句柄并释放资源。
+    注意：虽然 Lua GC 会自动关闭句柄，但在高频操作中建议手动调用此方法以避免句柄耗尽。
+    返回：boolean。
+
+:is_valid()
+    描述：检查当前对象持有的句柄是否有效。
+    返回：boolean。
+
+:handle()
+    描述：获取原始 FFI 句柄 (cdata<HANDLE>)。
+    警告：仅供高级用户使用，请勿手动调用 kernel32.CloseHandle，否则会导致 Double Free。
+
+:terminate([exit_code])
+    描述：强制终止该进程。
+    参数：exit_code 默认为 0。
+    返回：ok, code, msg。
+
+:terminate_tree()
+    描述：递归终止该进程及其所有子进程（基于父子进程链）。
+    返回：boolean。
+
+:wait_for_exit([timeout_ms])
+    描述：等待该进程退出。
+    返回：true (已退出), false (超时)。
+
+:get_info()
+    描述：获取进程详细快照信息。
+    返回：一个包含以下字段的表：
+        {
+            pid = number,
+            parent_pid = number,      -- 父进程 ID
+            session_id = number,      -- 会话 ID
+            exe_path = string,        -- 可执行文件完整路径
+            command_line = string,    -- 完整命令行
+            memory_usage_bytes = number, -- 工作集内存占用 (字节)
+            thread_count = number     -- 线程数
+        }
+
+:get_path()
+    描述：仅获取可执行文件路径（高性能版）。
+    返回：string。
+
+:get_command_line()
+    描述：仅获取命令行参数。
+    原理：通过 NtQueryInformationProcess 读取目标进程 PEB。
+    返回：string。
+
+:set_priority(priority_char)
+    描述：设置进程优先级。
+    参数：
+        'L': Idle (低)
+        'B': Below Normal
+        'N': Normal
+        'A': Above Normal
+        'H': High (高)
+        'R': Realtime (实时)
+    返回：boolean。
+
+3.4 常量定义 (proc.constants)
+
+SW_HIDE             = 0
+SW_SHOWNORMAL       = 1
+SW_SHOW             = 5
+PROCESS_ALL_ACCESS  = (System Dependent, usually 0x1F0FFF)
+
+4. 技术细节与注意事项
 --------------------------------------------------------------------------------
 
-process.pid
-- (属性) 进程 ID (number)。
+4.1 字符串编码
+Windows API 内部使用 UTF-16LE。本库自动处理 Lua String (UTF-8) 与 WCHAR 之间的转换。
+- 输入参数自动转为 WCHAR。
+- 输出结果自动转为 UTF-8。
+- v3.3.5 修复了空字符串指针可能导致的转换崩溃问题。
 
-process:is_valid()
-- 描述：检查内部进程句柄是否有效。
-- 返回：true 或 false。
+4.2 资源管理 (RAII)
+本库使用 LuaJIT 的 `ffi.gc` 机制绑定句柄。
+- 当 Process 对象被垃圾回收时，会自动调用 CloseHandle。
+- 推荐在确定不再使用对象时，显式调用 `:close()`，特别是在循环中创建大量进程对象的场景。
 
-process:handle()
-- 描述：获取底层的 Windows HANDLE。注意：不建议手动关闭此句柄，对象销毁时会自动管理。
-- 返回：一个 cdata:HANDLE。
+4.3 跨进程读取限制
+`:get_command_line()` 使用了读取 PEB (Process Environment Block) 的技术。
+- 如果目标进程是 64 位而当前脚本运行在 32 位环境（或反之），可能会因为内存布局不同而读取失败。
+- 对于受保护的系统进程（如 Antivirus, CSRSS），可能因权限不足 (Access Denied) 而失败。
 
-process:terminate(exit_code)
-- 描述：终止此进程实例。
-- 返回：成功返回 true；失败返回 nil, error_code, error_message。
+4.4 错误处理
+API 失败时返回的 `error_code` 对应 Windows System Error Codes。
+常见代码：
+- 5: Access Denied (权限不足，尝试以管理员运行)
+- 6: Invalid Handle (句柄无效，可能已关闭)
+- 87: Invalid Parameter (参数错误)
+- 258: Wait Timeout (等待超时)
 
-process:terminate_tree()
-- 描述：终止此进程实例及其所有子进程。
-- 返回：成功返回 true。
-
-process:wait_for_exit(timeout_ms)
-- 描述：等待此进程结束。
-- 参数：timeout_ms (number, optional): 超时毫秒数，-1 或不填表示无限等待。
-- 返回：进程正常退出返回 true；超时返回 false。
-
-process:get_info()
-- 描述：获取进程的详细信息。
-- 返回：成功则返回一个包含详细信息的 table；失败则返回 nil, error_code, error_message。
-  返回的 table 结构：
-  {
-    pid = (number),
-    parent_pid = (number),
-    session_id = (number),
-    exe_path = (string),
-    command_line = (string),
-    memory_usage_bytes = (number),
-    thread_count = (number)
-  }
-
-process:get_path()
-- 描述：快捷方法，仅获取进程的可执行文件路径。
-- 返回：成功返回路径字符串；失败返回 nil, error_code, error_message。
-
-process:get_command_line()
-- 描述：快捷方法，仅获取进程的完整命令行。
-- 返回：成功返回命令行字符串；失败返回 nil, error_code, error_message。
-
-process:set_priority(prio)
-- 描述：设置进程的 CPU 优先级。
-- 参数：prio (string): 单字符代码 'L' (低), 'B' (低于正常), 'N' (正常), 'A' (高于正常), 'H' (高), 'R' (实时)。
-- 返回：成功返回 true；失败返回 nil, error_code, error_message。
-
-================================================================================
-4. 开发与调试指南
-================================================================================
-
-4.1 环境搭建
+5. 变更日志 (v3.3.5)
 --------------------------------------------------------------------------------
-必须使用为 MSVC 工具链编译的 LuaJIT 2.1。
-1. 确保已执行 `git submodule update --init --recursive` 来获取 luaunit 测试框架。
-2. 确保 `luajit.exe` 位于系统 PATH 环境变量中，以便测试脚本可以找到它。
-
-4.2 运行测试
---------------------------------------------------------------------------------
-项目根目录下的 PowerShell 脚本是推荐的测试方式：
-.\run_tests.ps1
-
-启用性能分析器 (Profiler)：
-.\run_tests.ps1 -Profile
-此命令将运行完整的测试套件，并在项目根目录生成一个 `profile.log` 文件。该文件包含了每个被调用函数的耗时和调用次数等性能数据，可用于性能瓶颈分析。
-
-4.3 常见陷阱与编码规范 (Code Standards)
---------------------------------------------------------------------------------
-
-[真值判断陷阱]
-FFI 调用的 C 函数返回的数字 0 在 Lua 中被视为 true。这是导致逻辑错误的一个常见原因。
-错误写法：if C.SomeFunc() then ... end  -- 当 SomeFunc 返回 0 时，分支依然会进入
-正确写法：if C.SomeFunc() ~= 0 then ... end
-
-[句柄泄漏防御]
-所有通过 OpenProcess 或 CreateProcess 获取的 HANDLE 都被封装在 Process 对象中。该对象的 `__gc` 元方法确保在对象被垃圾回收时，其拥有的句柄会被自动调用 CloseHandle 关闭。开发者应始终使用 Process 对象，避免手动操作句柄。
-
-[Unicode 处理]
-所有与 Windows API 交互的字符串都必须是宽字符 (UTF-16)。库内部的 `wstr_to_str` 和 `str_to_wstr` 辅助函数负责此转换。对外 API 接受并返回标准的 Lua 字符串 (UTF-8)，内部自动处理所有转换。
-
-[Lua 5.1 ABI 兼容性]
-项目严格遵循 LuaJIT 的 Lua 5.1 语法。严禁使用 Lua 5.3+ 的语法，例如位运算符 (`|`, `&`, `<<`) 或整除运算符 (`//`)。所有位运算必须使用 LuaJIT 内置的 `bit` 库。
-
-4.4 错误码参考
---------------------------------------------------------------------------------
-- 5 (ERROR_ACCESS_DENIED): 权限不足。通常在尝试操作一个更高权限的进程，或在非管理员上下文中调用 `exec_as_system` 时发生。
-- 87 (ERROR_INVALID_PARAMETER): 无效参数。通常是向 API 传递了 nil 或空字符串。
-- 1168 (ERROR_NOT_FOUND): 进程未找到。
-- 258 (WAIT_TIMEOUT): 等待操作超时。
-- 1008 (ERROR_NO_TOKEN): 尝试获取用户令牌失败，常见于 `exec_as_system` 在没有活动用户会话的环境（如某些系统服务）中运行时。
-
-================================================================================
-5. 维护者注意事项
-================================================================================
-
-5.1 依赖库加载
---------------------------------------------------------------------------------
-ffi.C 默认只链接了少数核心 DLL (如 kernel32, user32)。本库依赖的其他系统库必须通过 `ffi.load()` 显式加载。
-- `psapi.dll`: 用于 GetModuleFileNameExW 和 GetProcessMemoryInfo。
-- `ntdll.dll`: 用于 NtQueryInformationProcess (获取 PEB)。
-- `wtsapi32.dll`: 用于 WTSGetActiveConsoleSessionId 和 WTSQueryUserToken。
-- `userenv.dll`: 用于 CreateEnvironmentBlock。
-- `advapi32.dll`: 用于 DuplicateTokenEx。
-
-5.2 版本发布流程
---------------------------------------------------------------------------------
-1. 在 `proc_utils_ffi.lua` 文件的顶部修改 `_M._VERSION` 字段。
-2. 确保 `.\run_tests.ps1` 命令下的所有单元测试均能成功通过。
-3. 若修改了 `ffi.cdef` 中的任何 C 结构体定义，必须再次核对最新的 MSDN 文档，确保结构体成员、大小和对齐方式正确无误，以防 32/64 位兼容性问题。
-4. 提交代码并密切关注 GitHub Actions CI 的构建与测试结果，确保在所有环境中表现一致。
+[FIX] 修复了 ffi.gc 类型错误：Process 对象是 Lua 表而非 userdata，移除了错误的 ffi.gc(self) 调用。
+[FIX] 修正了 require 路径，使其符合 PEShell 的 `ffi.Windows.sdk.*` 规范。
+[NEW] 新增 `Process:close()` 方法，支持确定性资源释放。
+[MOD] 优化 `exec` 和 `exec_as_system`：直接利用创建时返回的句柄，减少一次 OpenProcess 调用。
+[MOD] `wait_close` 现在使用 SYNCHRONIZE 权限，降低 CPU 占用。

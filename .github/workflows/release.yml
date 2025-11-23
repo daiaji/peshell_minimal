@@ -1,5 +1,3 @@
-# .github/workflows/release.yml
-
 name: Build and Release PEShell
 
 on:
@@ -9,10 +7,9 @@ on:
   workflow_dispatch:
     inputs:
       tag_name:
-        description: "要创建的标签和版本号 (例如: v1.0.1)"
+        description: "Tag (e.g., v1.0.1)"
         required: true
         type: string
-      # ... 其他输入 ...
 
 jobs:
   build-and-release:
@@ -20,106 +17,110 @@ jobs:
     permissions:
       contents: write
 
+    env:
+      LUAJIT_BIN_DIR: ${{ github.workspace }}\.lua
+      LUAJIT_SRC_DIR: vendor/luajit/src
+
     steps:
-      - name: Checkout repository with submodules
+      - name: Checkout
         uses: actions/checkout@v4
         with:
-          submodules: "recursive"
+          submodules: 'true'
 
-      - name: Setup MSVC environment
+      - name: Setup MSVC
         uses: ilammy/msvc-dev-cmd@v1
 
-      - name: Get LuaJIT submodule commit hash
-        id: luajit-hash
-        run: |
-          # [修改] 路径已更新为 vendor/luajit
-          $submodule_hash = (git submodule status vendor/luajit).Trim().Split(' ')[0]
-          echo "hash=$submodule_hash" >> $env:GITHUB_OUTPUT
+      - name: Update Deps
         shell: pwsh
+        run: .\update_vendor.ps1
 
-      - name: Cache MSVC-built LuaJIT
+      - name: Cache LuaJIT
         id: cache-luajit
-        uses: actions/cache@v4
+        uses: actions/cache@v3
         with:
-          path: .lua
-          key: msvc-luajit-v2-${{ runner.os }}-${{ steps.luajit-hash.outputs.hash }}
+          path: ${{ env.LUAJIT_BIN_DIR }}
+          key: ${{ runner.os }}-luajit-md-${{ hashFiles('vendor/luajit/.git') }}
 
-      - name: Build and install LuaJIT if not cached
+      - name: Build LuaJIT
         if: steps.cache-luajit.outputs.cache-hit != 'true'
-        run: cmake --build build --config Release --target install_luajit
-
-      - name: Add MSVC-built Lua to PATH
-        run: echo "${{ github.workspace }}\.lua\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
-        shell: pwsh
-      
-      - name: Setup LuaRocks
-        uses: luarocks/gh-actions-luarocks@v6
-
-      - name: Cache LuaRocks dependencies
-        id: cache-luarocks
-        uses: actions/cache@v4
-        with:
-          path: staging
-          key: luarocks-deps-v1-${{ runner.os }}-${{ hashFiles('peshell-minimal-dev-1.rockspec') }}
-
-      - name: Install Lua dependencies into staging directory
-        if: steps.cache-luarocks.outputs.cache-hit != 'true'
+        shell: cmd
         run: |
-          luarocks config variables.LUA_LIBDIR ${{ github.workspace }}\.lua\lib
-          luarocks install --tree=./staging peshell-minimal-dev-1.rockspec --only-deps
+          cd %LUAJIT_SRC_DIR%
+          call msvcbuild.bat gc64
+          mkdir "%LUAJIT_BIN_DIR%\bin"
+          mkdir "%LUAJIT_BIN_DIR%\lib"
+          mkdir "%LUAJIT_BIN_DIR%\include"
+          mkdir "%LUAJIT_BIN_DIR%\jit"
+          
+          copy lua51.dll "%LUAJIT_BIN_DIR%\bin\"
+          copy luajit.exe "%LUAJIT_BIN_DIR%\bin\"
+          copy lua51.lib "%LUAJIT_BIN_DIR%\lib\"
+          
+          copy lua.h "%LUAJIT_BIN_DIR%\include\"
+          copy lualib.h "%LUAJIT_BIN_DIR%\include\"
+          copy lauxlib.h "%LUAJIT_BIN_DIR%\include\"
+          copy luaconf.h "%LUAJIT_BIN_DIR%\include\"
+          copy luajit.h "%LUAJIT_BIN_DIR%\include\"
+          copy lua.hpp "%LUAJIT_BIN_DIR%\include\"
+          
+          rem [新增]
+          copy jit\*.lua "%LUAJIT_BIN_DIR%\jit\"
 
-      - name: Configure CMake for main project
-        run: cmake -S . -B build -G "Ninja"
+      - name: Build PEShell
+        run: |
+          cmake -S . -B build -G "Ninja" -DCMAKE_BUILD_TYPE=Release
+          cmake --build build --config Release
 
-      - name: Set Release Tag Variable
+      - name: Set Tag Variable
         id: vars
+        shell: pwsh
         run: |
           $tag = if ("${{ github.event_name }}" -eq "push") { "${{ github.ref_name }}" } else { "${{ inputs.tag_name }}" }
           echo "tag_name=$tag" >> $env:GITHUB_OUTPUT
-        shell: pwsh
-        
-      - name: Assemble Final Release Package
+
+      - name: Assemble Package
         id: assemble
-        run: |
-          luarocks pack peshell-minimal-dev-1.rockspec
-          $package_dir = New-Item -ItemType Directory -Path "${{ github.workspace }}/peshell-release" -Force
-          luarocks install --tree=$package_dir peshell-minimal-dev-1.src.rock --deps-mode=all
-          echo "package_path=$package_dir" >> $env:GITHUB_OUTPUT
         shell: pwsh
-
-      # [[ 核心新增步骤 ]]
-      - name: Copy VC++ Redistributable DLLs
         run: |
-          $vctools_redist_dir = $env:VCToolsRedistDir
-          $package_bin_dir = "${{ steps.assemble.outputs.package_path }}/bin"
-          
-          Write-Host "Searching for VC++ Redistributable DLLs in: $vctools_redist_dir"
-          
-          Copy-Item -Path "$vctools_redist_dir/x64/Microsoft.VC14*.CRT/*" -Destination $package_bin_dir -Recurse -Force
-          
-          Write-Host "Successfully copied VC++ runtime DLLs."
-        shell: pwsh
+          $pkg = New-Item -ItemType Directory -Path "peshell-release" -Force
+          $bin = New-Item -ItemType Directory -Path "$pkg/bin"
+          $lua = New-Item -ItemType Directory -Path "$pkg/share/lua/5.1"
+          $lib = New-Item -ItemType Directory -Path "$lua/lib"
+          $jit = New-Item -ItemType Directory -Path "$lua/jit"
 
-      - name: Print final package structure before zipping
-        run: |
-          cd ${{ steps.assemble.outputs.package_path }}
-          tree /F .
-        shell: cmd
+          Copy-Item "build/bin/peshell.exe" $bin
+          Copy-Item "${{ env.LUAJIT_BIN_DIR }}\bin\lua51.dll" $bin
+          Copy-Item "start_peshell_main.bat" $pkg
+
+          Copy-Item "scripts/core", "scripts/plugins", "scripts/*.lua" $lua -Recurse
+          
+          # [新增] JIT Libs
+          Copy-Item "${{ env.LUAJIT_BIN_DIR }}\jit\*.lua" $jit
+          
+          Copy-Item "vendor/lua-ext" "$lib/ext" -Recurse -Exclude .git,vendor
+          Copy-Item "vendor/lua-ffi-bindings" "$lib/ffi" -Recurse -Exclude .git,vendor
+          Copy-Item "vendor/proc_utils/proc_utils_ffi.lua" $lib
+          Copy-Item "vendor/lfs/lfs_ffi.lua" $lib
+          Copy-Item "vendor/luaunit/luaunit.lua" $lib
+
+          $vctools = $env:VCToolsRedistDir
+          Copy-Item "$vctools/x64/Microsoft.VC14*.CRT/*.dll" $bin -Force
+
+          echo "package_path=$pkg" >> $env:GITHUB_OUTPUT
 
       - name: Create Zip Archive
         id: package
-        run: |
-          $zipFileName = "peshell-${{ steps.vars.outputs.tag_name }}.zip"
-          Compress-Archive -Path "${{ steps.assemble.outputs.package_path }}/*" -DestinationPath $zipFileName
-          echo "zip_name=$zipFileName" >> $env:GITHUB_OUTPUT
         shell: pwsh
+        run: |
+          $zipName = "peshell-${{ steps.vars.outputs.tag_name }}.zip"
+          Compress-Archive -Path "${{ steps.assemble.outputs.package_path }}/*" -DestinationPath $zipName
+          echo "zip_name=$zipName" >> $env:GITHUB_OUTPUT
 
-      - name: Create Release and Upload Artifact
+      - name: Create GitHub Release
         uses: softprops/action-gh-release@v1
         with:
           files: ${{ steps.package.outputs.zip_name }}
           tag_name: ${{ steps.vars.outputs.tag_name }}
           name: ${{ github.event.inputs.release_name || format('PEShell {0}', steps.vars.outputs.tag_name) }}
-          body: ${{ github.event.inputs.body }}
           draft: false
-          prerelease: ${{ github.event.inputs.prerelease }}
+          prerelease: false

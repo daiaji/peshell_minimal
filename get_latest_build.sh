@@ -107,14 +107,14 @@ echo -e "${GREEN}找到最新成功运行 ID: ${YELLOW}${RUN_ID}${NC}"
 
 # 2. 获取该运行的构建产物 (Artifact) 下载链接
 ARTIFACTS_URL="https://api.github.com/repos/${REPO}/actions/runs/${RUN_ID}/artifacts"
-ARTIFACT_URL=$(curl --silent -H "Authorization: Bearer $GITHUB_TOKEN" "$ARTIFACTS_URL" | jq -r '.artifacts[] | select(.name == "peshell-build-artifact") | .archive_download_url')
+ARTIFACT_URL=$(curl --silent -H "Authorization: Bearer $GITHUB_TOKEN" "$ARTIFACTS_URL" | jq -r '.artifacts[] | select(.name == "peshell-release") | .archive_download_url')
 
 if [ -z "$ARTIFACT_URL" ] || [ "$ARTIFACT_URL" == "null" ]; then
-    cleanup "在此次运行中未能找到名为 'peshell-build-artifact' 的构建产物。"
+    cleanup "在此次运行中未能找到名为 'peshell-release' 的构建产物。"
 fi
 
 # 3. 下载并解压构建产物
-FILENAME="peshell-build-artifact.zip"
+FILENAME="peshell-release.zip"
 DOWNLOAD_PATH="${TEMP_DIR}/${FILENAME}"
 EXTRACT_DIR="${TEMP_DIR}/peshell-release-build"
 

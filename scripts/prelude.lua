@@ -1,40 +1,41 @@
--- scripts/prelude.lua (v6.3 - Modernized Path Setup)
--- PEShell 自动预加载脚本
+-- scripts/prelude.lua
+-- PEShell 自动预加载脚本 (Lua-Ext & FFI-Bindings Ready)
 
 -- 1. 设置模块加载路径
 do
     local exe_dir = assert(_G.PESHELL_EXE_DIR, "CRITICAL: PESHELL_EXE_DIR not set by host.")
-    -- <package_root>/bin -> <package_root>/
     local package_root = exe_dir:match("(.*[/\\])bin[/\\]?$")
     local scripts_dir = package_root .. 'share/lua/5.1'
-    local luarocks_dir = package_root .. 'share/lua/5.1'
     
-    -- [利用 Lua 5.2+ 兼容特性] 使用更清晰的模板方式构建路径，避免复杂的单行拼接
     local path_template = {
-        scripts_dir .. '/?.lua',          -- For top-level scripts like test_suite
-        scripts_dir .. '/?/init.lua',     -- For plugin packages
-        scripts_dir .. '/core/?.lua',     -- For core modules
-        -- [[ 新增 ]] 支持 lib 目录下的纯 Lua 第三方库
-        scripts_dir .. '/lib/?.lua',      
-        luarocks_dir .. '/?.lua',         -- For LuaRocks dependencies (e.g., pl)
-        luarocks_dir .. '/?/init.lua',
+        scripts_dir .. '/?.lua',
+        scripts_dir .. '/?/init.lua',
+        scripts_dir .. '/lib/?.lua',
+        scripts_dir .. '/lib/?/init.lua',
+        scripts_dir .. '/core/?.lua',
     }
     package.path = table.concat(path_template, ';') .. ';' .. package.path
-    
-    local cpath_template = {
-        exe_dir .. '/?.dll',              -- For C modules like lfs.dll
-    }
-    package.cpath = table.concat(cpath_template, ';') .. ';' .. package.cpath
+    package.cpath = exe_dir .. '/?.dll;' .. package.cpath
 end
 
--- 2. 加载并全局化核心服务
+-- 2. 初始化核心环境 (Lua-Ext)
+-- 必须尽早加载，它会修正 arg 表和 Windows Console CP (65001)
+local status, ext = pcall(require, 'ext.ext')
+if not status then
+    io.stderr:write("CRITICAL: Failed to load 'ext.ext'. Ensure 'lua-ext' is in 'lib/ext'.\n")
+    io.stderr:write(tostring(ext) .. "\n")
+    os.exit(1)
+end
+
+-- 3. 初始化日志 (现在可以安全打印中文了)
 _G.log = require("core.log")
+
+-- 4. 构建 pesh 全局对象
 _G.pesh = {
-    ffi = require("core.ffi"),
     plugin = require("core.plugin")
 }
 
--- 3. 定义全局命令注册函数
+-- 5. 定义全局命令注册函数
 _G.PESHELL_COMMANDS = {}
 function _G.RegisterCommand(name, implementation)
     if _G.PESHELL_COMMANDS[name] then
@@ -43,15 +44,16 @@ function _G.RegisterCommand(name, implementation)
     _G.PESHELL_COMMANDS[name] = implementation
 end
 
--- 4. 定义内置核心命令 (这些命令自身不依赖功能插件)
+-- 6. 定义内置核心命令
 RegisterCommand("run", function(args)
     if not args.cmd or #args.cmd < 1 then
         log.error("run: Missing script path.")
         return 1
     end
     local script_path = table.remove(args.cmd, 1)
-    _G.arg = args.cmd -- The rest are arguments for the script
+    _G.arg = args.cmd 
     
+    -- ext.ext 修复了 loadfile/dofile 的 unicode 支持
     local status, ret = xpcall(dofile, debug.traceback, script_path)
     if not status then
         log.error("Error running script '", script_path, "':\n", tostring(ret))
@@ -73,32 +75,22 @@ RegisterCommand("main", function(args)
         log.error("Error in main script '", script_path, "':\n", tostring(err))
         return 1
     end
-    return 0 -- Must return 0 to let C++ host enter the message loop
+    return 0 
 end)
 
--- 5. 核心命令分发器
+-- 7. 核心命令分发器
 function _G.DispatchCommand(...)
     local cmd_args = table.pack(...)
     
-    local help_message = [[
-PEShell v6.2 (Plugin Model) - A modular WinPE automation engine.
+    if cmd_args.n == 0 or cmd_args[1] == "help" then
+        print([[
+PEShell v7.0 (Lua-Ext Edition)
 
 Usage: peshell.exe <command> [arguments...]
 
-Available Commands (dynamically loaded on first use):
-  run <script> [<args...>]   Execute a Lua script.
-  main <script> [<args...>]  Run in PE guardian mode with an init script.
-  shel [--adopt] <cmd...>    Lock a program as the system shell.
-  shutdown                   Signal the guardian process to exit gracefully.
-  exec [-w] [-h] ... <cmd>   Execute an external program.
-  kill <name_or_pid...>      Terminate one or more processes.
-  killtree <name_or_pid...>  Terminate a process and its entire process tree.
-  init                       Initialize the PE user environment.
-  help                       Show this help message.
-]]
-
-    if cmd_args.n == 0 or cmd_args[1] == "help" then
-        print(help_message)
+Available Commands:
+  run, main, shel, shutdown, exec, kill, killtree, init, help
+]])
         return 0
     end
 
@@ -106,17 +98,17 @@ Available Commands (dynamically loaded on first use):
     local command_handler = PESHELL_COMMANDS[cmd_name]
     
     if not command_handler then
-        log.debug("Command '", cmd_name, "' not found. Attempting to lazy-load as plugin...")
-        local load_ok, loaded_module_or_err = pcall(pesh.plugin.load, cmd_name)
+        log.debug("Command '", cmd_name, "' not found. Lazy-loading...")
+        local load_ok, err = pcall(pesh.plugin.load, cmd_name)
         if load_ok then
-            command_handler = PESHELL_COMMANDS[cmd_name] -- Re-check if the plugin registered the command
+            command_handler = PESHELL_COMMANDS[cmd_name]
         else
-            log.error("Failed to load plugin for command '", cmd_name, "': ", tostring(loaded_module_or_err))
+            log.error("Failed to load plugin '", cmd_name, "': ", err)
         end
     end
     
     if not command_handler then
-        log.error("Unknown command '", cmd_name, "'. Use 'help' to see available commands.")
+        log.error("Unknown command '", cmd_name, "'.")
         return 1
     end
     
@@ -131,4 +123,4 @@ Available Commands (dynamically loaded on first use):
     return tonumber(retcode) or 0
 end
 
-log.info("Prelude: Core services initialized. Ready for command dispatch and lazy loading.")
+log.info("Prelude: Lua-Ext environment initialized. Unicode support active.")

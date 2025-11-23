@@ -1,12 +1,9 @@
-[submodule "vendor/luajit2"]
+[submodule "vendor/lua-ext"]
+	path = vendor/lua-ext
+	url = https://github.com/daiaji/lua-ext.git
+[submodule "vendor/lua-ffi-bindings"]
+	path = vendor/lua-ffi-bindings
+	url = https://github.com/daiaji/lua-ffi-bindings.git
+[submodule "vendor/luajit"]
 	path = vendor/luajit
 	url = https://github.com/openresty/luajit2.git
-[submodule "vendor/proc_utils"]
-	path = vendor/proc_utils
-	url = https://github.com/daiaji/proc_utils.git
-[submodule "vendor/spdlog"]
-	path = vendor/spdlog
-	url = https://github.com/gabime/spdlog.git
-[submodule "vendor/ctpl"]
-	path = vendor/ctpl
-	url = https://github.com/vit-vit/CTPL.git

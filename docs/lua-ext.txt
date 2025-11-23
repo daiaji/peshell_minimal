@@ -1,0 +1,251 @@
+Lua-Ext 开发者完全参考手册
+版本：dev-1-update
+适用环境：Lua 5.1 / LuaJIT 2.1
+文档更新时间：2025-11-23
+
+================================================================================
+第一部分：核心环境与基础扩展
+================================================================================
+
+1. 环境与元编程 (Core & Meta)
+
+1.1 库入口 (ext.ext)
+通过 require 'ext.ext' 加载。加载后会自动执行环境注入和元表修改，并处理 Windows 控制台编码修复。
+
+1.2 环境注入 (ext.env)
+用法：require 'ext.env'(env_table)
+描述：将扩展模块注入到指定环境（通常是 _G）。
+效果：
+- 基础库扩展：为 string, table, math, io, os 注入扩展方法。
+- 全局类注入：Set, Iter, Date, OrderedMap, Array2D。
+- 全局函数注入：tolua, fromlua, class, range, reload, printf。
+- 函数式编程：注入占位符 _1 到 _5 及 P 构建器。
+- 命令行：注入 cmdline 全局表。
+
+1.3 元表增强 (ext.meta)
+用法：require 'ext.meta'
+描述：修改 Lua 原生类型的元表以支持快捷操作。
+- String: 支持索引操作（如 s[1]），代理到 ext.string。
+- Function:
+  - 算术重载：(f + g)(x) 等价于 f(x) + g(x)。
+  - 负号重载：(-f)(x) 等价于 -f(x)。
+  - 组合：f:o(g)(x) 等价于 f(g(x))。
+  - 柯里化/绑定：f:bind(a) 返回新函数 g(...)，等价于 f(a, ...)。
+- Boolean:
+  - 逻辑运算：true:and_(false), true:xor(true), false:implies(true)。
+- Nil:
+  - 连接操作：nil .. "abc" 变为 "nilabc"（防止连接报错）。
+
+1.4 断言库 (ext.assert)
+assert.eq(a, b, [msg]): 断言 a == b，失败抛出错误，成功返回 a, b。
+assert.ne(a, b, [msg]): 断言 a ~= b。
+assert.eqeps(a, b, [eps], [msg]): 断言浮点数相等 |a - b| <= eps，默认 eps 为 1e-7。
+assert.type(obj, type_str, [msg]): 断言 type(obj) == type_str。
+assert.is(obj, class_table, [msg]): 断言 obj 是 class_table 的实例（检查 class:isa(obj)）。
+assert.tableieq(t1, t2, [msg]): 断言两个数组部分内容完全相等。
+assert.error(func, [msg]): 断言函数执行时会抛出错误。
+
+================================================================================
+第二部分：数据结构与数学扩展
+================================================================================
+
+2. 表操作 (ext.table)
+注意：加载后，原生 table 库即拥有这些方法，支持 t:method() 调用。
+
+2.1 构造与基础
+table.new(...): 创建新表并融合传入的表。
+table.keys(t): 返回包含所有键的数组。
+table.values(t): 返回包含所有值的数组。
+table.kvpairs(t): 返回 {{k=k1, v=v1}, ...} 形式的键值对列表。
+table.zip(t1, t2, ...): 矩阵转置或元组打包，返回 {{t1[1], t2[1]}, ...}。
+
+2.2 函数式操作
+t:map(func(v, k) -> new_v, [new_k]): 映射产生新表。
+t:filter(func(v, k) -> bool): 过滤产生新表。
+t:reduce(func(acc, v) -> new_acc, [init]): 归约操作。
+t:combine(func(acc, v) -> new_acc): 类似 reduce，但以首元素为初始值。
+t:sum(): 求和。
+t:product(): 求积。
+
+2.3 查找与排序
+t:find(val, [eq_func]): 查找值的键，eq_func 默认为 ==。
+t:contains(val): 判断是否包含值。
+t:sort([cmp_func]): 排序自身并返回（支持链式调用）。
+t:sup([cmp_func]): 返回最大值及其键。
+t:inf([cmp_func]): 返回最小值及其键。
+t:pickRandom(): 随机选择一个值。
+t:pickWeighted(): 根据 value 作为权重随机选择 key。
+t:shuffle(): 返回打乱后的新数组。
+
+2.4 集合与修改操作 (修改自身)
+t:append(t2, ...): 将 t2 的数组部分追加到 t。
+t:union(t2, ...): 将 t2 的键值对合并到 t。
+t:removeKeys(k1, ...): 移除指定键。
+t:removeObject(val): 移除所有等于 val 的值。
+
+3. 字符串操作 (ext.string)
+s:split(sep): 分割字符串，无 sep 则按字符分割。
+s:trim(): 去除首尾空白。
+s:hex(): 转十六进制字符串。
+s:unhex(): 十六进制转回字符串。
+s:hexdump([cols], [word_sz]): 生成 Hex Dump 视图。
+s:dedent(): 智能去除多行文本的公共缩进。
+s:wrap(width): 自动换行。
+s:csub(start, len): C 风格子串截取（start 从 0 开始）。
+
+4. 数学与数字 (ext.math / ext.number)
+math.clamp(x, min, max): 限制范围。
+math.sign(x): 符号函数 (-1, 0, 1)。
+math.round(x): 四舍五入。
+math.lerp(a, b, t) / math.mix: 线性插值。
+math.isprime(n): 素数判断。
+math.factors(n): 返回因子表。
+math.primeFactorization(n): 返回质因数分解表。
+math.gcd(a, b): 最大公约数。
+number.tostring(n, base): 支持任意进制转换（如 base=2, 16）。
+
+5. 其他数据结构
+Set: 集合。支持 + (并), - (差), * (交) 运算符。
+OrderedMap: 保持插入顺序的字典。支持 m:set(k,v) 和 m:iter()。
+Array2D: 二维数组。FFI 模式下使用 double[] 连续内存优化。
+Date: 日期对象，支持日期算术运算。
+
+================================================================================
+第三部分：系统、IO 与 路径 (Windows Unicode 增强版)
+================================================================================
+
+重要说明：在 Windows 平台下，本部分所有涉及文件路径和系统调用的 API 均通过 FFI 实现了“透明的 UTF-8 支持”。开发者只需在 Lua 中使用标准 UTF-8 字符串，库内部会自动转换为 Windows 宽字符（UTF-16）调用底层 API。
+
+6. 路径对象 (ext.path)
+用法：require 'ext.path' (通常直接使用 path 全局变量)
+
+路径对象旨在提供一种面向对象、跨平台且“Unicode 友好”的文件系统操作方式。
+内部始终使用 / (正斜杠) 作为分隔符，但在进行系统调用或转为字符串时，会自动转换为当前系统的分隔符（Windows 下为 \）。
+
+6.1 构造与基础
+path(arg): 构造函数。
+- 参数 arg: 可以是字符串、表（{path="..."}）或已有的 Path 对象。
+- 行为: 自动归一化分隔符为 /，去除末尾多余的 /（根目录除外）。
+
+path:cwd(): [静态] 获取当前工作目录的 Path 对象。优先使用 lfs.currentdir，降级使用 shell 命令。
+
+6.2 字符串转换与显示
+p:str(): 返回路径字符串。
+- 行为: 依据当前操作系统，将内部的 / 转换为系统分隔符（如 Windows 下转为 \）。
+tostring(p): 同 p:str()。
+p:escape(): 返回适合 Shell 使用的转义字符串 (%q)，自动转换为系统分隔符。
+
+6.3 运算符与路径拼接
+p / "sub": 路径拼接。
+p("sub"): 路径拼接（Functor 语法，等同于 p / "sub"）。
+- 逻辑:
+  1. 若右侧路径以 / 开头或包含盘符（如 C:），则视为绝对路径，直接忽略左侧，返回右侧路径的新 Path 对象。
+  2. 否则将两部分拼接，并进行路径简化（处理 .. 和 .）。
+p == p2: 比较路径是否相等（比较内部 path 字符串）。
+p < p2: 字典序比较。
+p .. "str": 字符串连接，返回 Lua 字符串（非 Path 对象）。
+
+6.4 路径分解与变换 (Decomposition)
+p:parent(): 返回父目录的 Path 对象。
+- 根目录或无父目录时返回 nil。
+- 能够正确处理 Windows 盘符根目录（如 C:/）。
+p:name(): 返回完整文件名（包含扩展名，如 lib.dll）。
+p:stem(): 返回不含最后扩展名的文件名。
+- 特殊处理: 若文件名以点开头且无其他点（如 .gitignore），视为完整文件名返回。
+p:ext(): 返回扩展名（包含点，如 .dll）。
+- 若无扩展名则返回空字符串。
+p:setext(newext): 返回修改了扩展名的新 Path 对象。
+- 若 newext 为 nil，则移除扩展名。
+p:abs(): 返回绝对路径对象。
+- 若自身已是绝对路径则返回自身。
+- 否则返回 path:cwd() / self。
+p:getdir() / p:getext(): [兼容旧版] 返回目录/文件名或文件名/后缀。
+
+6.5 属性与判断 (Attributes & Predicates)
+p:exists(): 检查路径是否存在 (依赖 lfs)。
+p:is_file() / p:isfile(): 检查是否为文件 (mode == 'file')。
+p:is_dir() / p:isdir(): 检查是否为目录 (mode == 'directory')。
+p:is_link() / p:is_link(): 检查是否为符号链接。
+p:stat(): 返回 lfs.attributes 表。
+p:attr(name): 返回特定属性 (如 'mode', 'size', 'mtime')。
+
+6.6 文件系统操作 (FS Operations)
+p:mkdir([recursive]): 创建目录。支持 recursive=true 递归创建。
+p:move(to): 移动或重命名。to 可以是字符串或 Path 对象。
+p:remove(): 智能删除。
+- 若是目录：调用 os.rmdir。
+- 若是文件：调用 os.remove。
+p:dir(): 返回迭代器，遍历目录下的所有项。
+- 注意：迭代器返回的是 Path 对象，而非字符串。
+p:rdir(callback): 递归遍历目录。
+p:touch(): 更新时间戳或创建空文件。
+
+6.7 文件内容读写 (IO Wrappers)
+p:open(mode): 打开文件，返回文件句柄。
+p:read(): 读取文件全部内容。
+p:write(data): 覆盖写入内容。
+p:append(data): 追加写入内容。
+p:lines(): 返回文件行迭代器。
+
+7. 输入/输出 (ext.io)
+io.readfile(path): 读取全文件。
+io.writefile(path, data): 以 "wb" 模式覆盖写入。
+io.appendfile(path, data): 以 "ab" 模式追加写入。
+io.readproc(cmd): 运行命令并获取标准输出。
+io.getfiledir(path): 获取路径的目录部分。
+io.getfileext(path): 获取文件名和扩展名。
+
+8. 操作系统接口 (ext.os)
+os.path(str): 将路径分隔符转换为当前系统格式。
+os.execute(cmd): 增强版命令执行，支持 Windows UTF-8。
+os.getenv / os.setenv: 环境变量操作，支持 Windows UTF-8。
+os.mkdir(path, [recursive]): 创建目录。
+os.move(src, dst): 移动/重命名。
+os.rmdir(dir): 删除空目录。
+os.remove(file): 删除文件。
+os.listdir(path): 遍历目录文件名。
+os.fileexists(path): 检查路径存在性。
+os.isdir(path): 检查是否为目录。
+os.home(): 获取用户主目录。
+os.tmpname(): 生成临时文件名。
+
+================================================================================
+第四部分：高级工具库
+================================================================================
+
+9. 面向对象 (ext.class)
+local Class = require 'ext.class'
+MyClass = Class([Parent]): 定义类。
+function MyClass:init(args...): 构造函数。
+obj = MyClass(...): 实例化。
+MyClass:isa(obj) / obj:isa(Class): 类型检查，支持继承链。
+
+10. 函数式编程 (ext.func)
+占位符: _1, _2 ... 代表参数位置。
+表达式构造 (P):
+- local f = _1 + _2 等价于 function(a,b) return a+b end。
+辅助函数: func.bind, func.compose。
+
+11. 调试与计时
+ext.debug: 源码级调试标记。
+ext.timer: 高精度时间与 UTC 转换。
+
+12. 序列化与配置
+ext.tolua / ext.fromlua: Lua 对象序列化与反序列化。
+ext.cmdline: 简单命令行参数解析。
+ext.cli: 严格模式命令行解析。
+ext.xml: XML 解析与生成。
+ext.config: INI 配置读取。
+
+================================================================================
+第五部分：Windows Unicode/UTF-8 技术内幕
+================================================================================
+
+13.1 自动环境修复
+加载 ext.ext 后，自动将 Windows 控制台代码页设置为 65001 (UTF-8)，并修正全局 arg 表以支持 Unicode 参数。
+
+13.2 文件系统 API 映射
+库内部通过 FFI 将标准 Lua IO/OS API 映射到 Windows 宽字符版本 (_wfopen, _wremove 等)，实现透明的中文路径支持。
+
+13.3 依赖说明
+强烈建议安装 lfs_ffi (LuaFileSystem FFI)，以获得高性能的目录遍历和准确的文件属性支持。ext.path 会自动检测并优先使用 lfs_ffi。

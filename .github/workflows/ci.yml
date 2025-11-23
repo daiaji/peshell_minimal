@@ -1,6 +1,4 @@
-# .github/workflows/ci.yml
-
-name: CI Build and Test
+name: CI Build and Package
 
 on:
   push:
@@ -8,137 +6,116 @@ on:
   workflow_dispatch:
 
 jobs:
-  build-and-test:
+  build:
     runs-on: windows-latest
+    
+    env:
+      LUAJIT_BIN_DIR: ${{ github.workspace }}\.lua
+      LUAJIT_SRC_DIR: vendor/luajit/src
 
     steps:
-      - name: Checkout repository with submodules
+      - name: Checkout
         uses: actions/checkout@v4
         with:
-          submodules: "recursive"
+          submodules: 'true'
 
-      - name: Setup MSVC environment
+      - name: Setup MSVC
         uses: ilammy/msvc-dev-cmd@v1
 
-      - name: Get LuaJIT submodule commit hash
-        id: luajit-hash
-        run: |
-          # [修改] 路径已更新为 vendor/luajit
-          $submodule_hash = (git submodule status vendor/luajit).Trim().Split(' ')[0]
-          echo "hash=$submodule_hash" >> $env:GITHUB_OUTPUT
+      - name: Update Deps
         shell: pwsh
+        run: .\update_vendor.ps1
 
-      - name: Cache MSVC-built LuaJIT
+      - name: Cache LuaJIT
         id: cache-luajit
-        uses: actions/cache@v4
+        uses: actions/cache@v3
         with:
-          path: .lua
-          key: msvc-luajit-v3-${{ runner.os }}-${{ steps.luajit-hash.outputs.hash }}
+          path: ${{ env.LUAJIT_BIN_DIR }}
+          key: ${{ runner.os }}-luajit-md-${{ hashFiles('vendor/luajit/.git') }}
 
-      - name: Configure CMake for Release Build
-        run: cmake -S . -B build -G "Ninja" -DCMAKE_BUILD_TYPE=Release
-
-      - name: Build and install LuaJIT if not cached
+      - name: Build LuaJIT (Dynamic CRT)
         if: steps.cache-luajit.outputs.cache-hit != 'true'
-        run: cmake --build build --config Release --target install_luajit
-
-      - name: Add MSVC-built Lua to PATH
-        run: echo "${{ github.workspace }}\.lua\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
-        shell: pwsh
-      
-      - name: Setup LuaRocks
-        uses: luarocks/gh-actions-luarocks@v6
-
-      - name: Build and Assemble Self-Contained Package
-        id: assemble
-        run: |
-          # 1. 创建最终的包目录结构
-          $package_dir = New-Item -ItemType Directory -Path "${{ github.workspace }}/package" -Force
-          $bin_dir      = New-Item -ItemType Directory -Path "$package_dir/bin"
-          $lua_dir      = New-Item -ItemType Directory -Path "$package_dir/share/lua/5.1" -Force
-          
-          # [[ 新增 ]] 创建专门存放纯 Lua 第三方库的目录
-          $lib_dir      = New-Item -ItemType Directory -Path "$lua_dir/lib" -Force
-
-          # 2. 编译我们自己的 C++ 代码 (使用 Release 配置)
-          # 注意：CMakeLists.txt 已修改，不再编译 proc_utils C++ 库
-          cmake --build build --config Release
-          
-          # 3. 将我们自己的产物复制到最终目录
-          Write-Host "Copying project artifacts..."
-          Copy-Item -Path "build/bin/*" -Destination $bin_dir
-
-          # 4. 将我们自己的 Lua 脚本复制到最终目录
-          Copy-Item -Path "scripts/*" -Destination $lua_dir -Recurse
-          
-          # [[ 新增 ]] 复制 proc_utils_ffi.lua 到 lib 目录
-          # 这是这一步的核心变更，实现零编译依赖
-          Write-Host "Installing proc_utils_ffi.lua to lib directory..."
-          Copy-Item -Path "vendor/proc_utils/proc_utils_ffi.lua" -Destination "$lib_dir"
-
-          Copy-Item -Path "start_peshell_main.bat" -Destination $package_dir
-
-          # 5. 使用 LuaRocks 将 *依赖项* 安装到最终目录中
-          Write-Host "Installing dependencies directly into the package..."
-          luarocks install --tree=$package_dir peshell-minimal-dev-1.rockspec --only-deps
-          
-          # 6. 将所有依赖的 .dll 文件（如 lfs.dll）统一移动到 bin 目录
-          Write-Host "Consolidating all DLLs into the bin directory..."
-          if (Test-Path "$package_dir/lib") {
-              Get-ChildItem -Path "$package_dir/lib" -Filter "*.dll" -Recurse | Move-Item -Destination $bin_dir -Force
-          }
-          
-          # 7. 清理打包过程中的中间产物
-          Write-Host "Cleaning up the package..."
-          Write-Host "  -> Removing debug and intermediate files from bin..."
-          Remove-Item -Path "$bin_dir/*.pdb", "$bin_dir/*.ilk" -ErrorAction SilentlyContinue
-          Write-Host "  -> Removing temporary luarocks lib directory..."
-          Remove-Item -Path "$package_dir/lib" -Recurse -Force
-
-          echo "package_path=$package_dir" >> $env:GITHUB_OUTPUT
-        shell: pwsh
-        
-      - name: Copy VC++ Redistributable DLLs
-        run: |
-          $vctools_redist_dir = $env:VCToolsRedistDir
-          $package_bin_dir = "${{ steps.assemble.outputs.package_path }}/bin"
-          Write-Host "Copying VC++ Redistributable DLLs from: $vctools_redist_dir"
-          Copy-Item -Path "$vctools_redist_dir/x64/Microsoft.VC14*.CRT/*" -Destination $package_bin_dir -Recurse -Force
-          Write-Host "Successfully copied VC++ runtime DLLs."
-        shell: pwsh
-
-      - name: Print final package structure
-        run: |
-          cd ${{ steps.assemble.outputs.package_path }}
-          tree /F .
         shell: cmd
-
-      - name: Clean up logs before test run
         run: |
-          $log_dir = "${{ steps.assemble.outputs.package_path }}/logs"
-          if (Test-Path $log_dir) {
-            Write-Host "Found and removing existing logs directory before tests: $log_dir"
-            Remove-Item -Path $log_dir -Recurse -Force
-          }
-        shell: pwsh
+          cd %LUAJIT_SRC_DIR%
+          call msvcbuild.bat gc64
+          
+          mkdir "%LUAJIT_BIN_DIR%\bin"
+          mkdir "%LUAJIT_BIN_DIR%\lib"
+          mkdir "%LUAJIT_BIN_DIR%\include"
+          mkdir "%LUAJIT_BIN_DIR%\jit"
+          
+          copy lua51.dll "%LUAJIT_BIN_DIR%\bin\"
+          copy luajit.exe "%LUAJIT_BIN_DIR%\bin\"
+          copy lua51.lib "%LUAJIT_BIN_DIR%\lib\"
+          
+          rem 复制头文件
+          copy lua.h "%LUAJIT_BIN_DIR%\include\"
+          copy lualib.h "%LUAJIT_BIN_DIR%\include\"
+          copy lauxlib.h "%LUAJIT_BIN_DIR%\include\"
+          copy luaconf.h "%LUAJIT_BIN_DIR%\include\"
+          copy luajit.h "%LUAJIT_BIN_DIR%\include\"
+          copy lua.hpp "%LUAJIT_BIN_DIR%\include\"
+          
+          rem [新增] 复制 JIT 库文件 (vmdef.lua, bc.lua 等)
+          copy jit\*.lua "%LUAJIT_BIN_DIR%\jit\"
 
-      - name: Run Lua Unit & Integration Tests
-        working-directory: ${{ steps.assemble.outputs.package_path }}
+      - name: Disable Windows Defender
+        shell: pwsh
         run: |
-          # 工作目录已设置为 package 目录, 可以直接执行
-          .\bin\peshell.exe run .\share\lua\5.1\test_suite.lua
-        shell: pwsh
+          Set-MpPreference -DisableRealtimeMonitoring $true
+          Set-MpPreference -DisableIOAVProtection $true
+          Set-MpPreference -DisableArchiveScanning $true
+          Write-Host "Windows Defender Real-time Monitoring disabled."
 
-      - name: Clean up logs created by tests
-        if: always()
+      - name: Build PEShell
         run: |
-          Write-Host "Removing logs directory generated during test run to ensure a clean artifact..."
-          Remove-Item -Path "${{ steps.assemble.outputs.package_path }}/logs" -Recurse -Force -ErrorAction SilentlyContinue
-        shell: pwsh
+          cmake -S . -B build -G "Ninja" -DCMAKE_BUILD_TYPE=Release
+          cmake --build build --config Release
 
-      - name: Upload Build Artifact
+      - name: Assemble Package
+        shell: pwsh
+        run: |
+          $pkg = New-Item -ItemType Directory -Path "package" -Force
+          $bin = New-Item -ItemType Directory -Path "$pkg/bin"
+          $lua = New-Item -ItemType Directory -Path "$pkg/share/lua/5.1"
+          $lib = New-Item -ItemType Directory -Path "$lua/lib"
+          # [新增] JIT 库目录
+          $jit = New-Item -ItemType Directory -Path "$lua/jit"
+
+          # A. 二进制
+          Copy-Item "build/bin/peshell.exe" $bin
+          Copy-Item "${{ env.LUAJIT_BIN_DIR }}\bin\lua51.dll" $bin
+          Copy-Item "start_peshell_main.bat" $pkg
+
+          # B. 脚本
+          Copy-Item "scripts/core", "scripts/plugins", "scripts/*.lua" $lua -Recurse
+          
+          # C. JIT 库 (放在 share/lua/5.1/jit)
+          Copy-Item "${{ env.LUAJIT_BIN_DIR }}\jit\*.lua" $jit
+
+          # D. 纯 Lua 依赖库
+          Copy-Item "vendor/lua-ext" "$lib/ext" -Recurse -Exclude .git,vendor
+          Copy-Item "vendor/lua-ffi-bindings" "$lib/ffi" -Recurse -Exclude .git,vendor
+          Copy-Item "vendor/proc_utils/proc_utils_ffi.lua" $lib
+          Copy-Item "vendor/lfs/lfs_ffi.lua" $lib
+          Copy-Item "vendor/luaunit/luaunit.lua" $lib
+
+          # E. VC++ Runtime
+          $vctools = $env:VCToolsRedistDir
+          $crt = Join-Path $vctools "x64/Microsoft.VC14*.CRT"
+          Write-Host "Copying CRT from $crt"
+          Copy-Item "$crt/*.dll" $bin -Force
+
+          echo "PACKAGE_PATH=$pkg" >> $env:GITHUB_ENV
+
+      - name: Smoke Test
+        working-directory: ${{ env.PACKAGE_PATH }}
+        run: |
+          .\bin\peshell.exe run share\lua\5.1\test_suite.lua
+
+      - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: peshell-build-artifact
-          path: ${{ steps.assemble.outputs.package_path }}/
-          retention-days: 7
+          name: peshell-release
+          path: ${{ env.PACKAGE_PATH }}

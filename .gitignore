@@ -78,3 +78,8 @@ artifacts/
 # ==================================
 # 忽略本地对日志配置的修改
 /config/logging.ini
+
+vendor/ctpl/
+vendor/spdlog/
+vendor/proc_utils/
+vendor/lfs/

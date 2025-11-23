@@ -1,0 +1,218 @@
+LuaFileSystem-FFI (lfs_ffi) 开发者技术参考手册
+
+版本：0.1 (兼容 lfs 1.8+)
+适用环境：LuaJIT 2.0 / 2.1 (Windows/Linux/macOS)
+依赖库：lua-ffi-bindings, lua-ext
+文档生成时间：2025-11-22
+
+================================================================================
+1. 项目概述
+================================================================================
+
+LuaFileSystem-FFI (lfs_ffi) 是标准 LuaFileSystem (lfs) 库的纯 LuaJIT FFI 重写版本。
+
+主要设计目标与特性：
+1. 二进制兼容性：完全兼容 lfs 的标准 API，可作为 Drop-in Replacement 使用。
+2. Windows Unicode 支持：彻底解决原生 lfs 在 Windows 下不支持 UTF-8 路径的问题。
+3. 零编译：无需编译 C 源码或 DLL，仅依赖 lua-ffi-bindings 提供的定义。
+4. 高精度时间：支持纳秒级时间戳 (Linux/Windows)。
+5. 增强功能：提供 fopen (Unicode 敏感的文件打开) 和跨平台文件锁。
+
+================================================================================
+2. 依赖关系与部署
+================================================================================
+
+必需依赖：
+- lua-ffi-bindings：提供所有 C 结构体 (struct stat, _finddata_t) 和函数定义。
+- lua-ext：使用 ext.gc 进行元表管理，以及 ext.op 等工具。
+
+部署建议：
+将 lfs_ffi.lua 放置在 package.path 可引用的位置。
+在代码中引用：
+local lfs = require 'lfs_ffi'
+或者覆盖原生 lfs：
+package.loaded.lfs = require 'lfs_ffi'
+
+================================================================================
+3. API 接口详情
+================================================================================
+
+注意：以下 API 均位于 lfs 表中。
+
+--------------------------------------------------------------------------------
+3.1 路径与属性 (Attributes & Paths)
+--------------------------------------------------------------------------------
+
+lfs.attributes(filepath, [aname | atable])
+描述：
+获取文件或目录的属性。此函数会自动跟随符号链接 (相当于 stat)。
+
+参数：
+- filepath (string): 路径 (Windows 下完整支持 UTF-8)。
+- aname (string, 可选): 若指定，仅返回该单一属性值 (如 "mode")。
+- atable (table, 可选): 传入表以复用内存，将属性填充入内。
+
+返回：
+若成功返回 table 或 单一值；失败返回 nil, error_message, errno。
+
+属性表字段详情：
+- mode: 字符串，类型包括 "file", "directory", "link", "socket", "named pipe", "char device", "block device", "other"。
+- size: 文件大小 (字节数)。
+- modification: 修改时间 (秒，Unix Timestamp)。
+- access: 访问时间 (秒)。
+- change: 元数据状态改变时间 (秒)。
+- permissions: 权限字符串 (如 "rwxr-xr-x" 或 Windows 下模拟的权限)。
+- nlink: 硬链接数。
+- uid, gid: 用户 ID，组 ID。
+- ino, dev, rdev: 系统特定的 inode 和设备信息。
+
+FFI 特有扩展字段 (纳秒精度)：
+- modification_ns, access_ns, change_ns: 返回 cdata<struct timespec>。需使用 tonumber(ts.tv_sec) 和 tonumber(ts.tv_nsec) 访问。
+
+lfs.symlinkattributes(filepath, [aname | atable])
+描述：
+获取文件属性，但不跟随符号链接 (相当于 lstat)。如果路径是链接，返回链接本身的信息。
+
+特有字段：
+- target: 字符串，指示符号链接指向的目标路径 (绝对或相对)。
+
+lfs.chdir(path)
+描述：改变当前工作目录。
+返回：成功返回 true，失败返回 nil, error。
+
+lfs.currentdir()
+描述：获取当前工作目录。
+返回：UTF-8 格式的路径字符串，或 nil, error。
+
+--------------------------------------------------------------------------------
+3.2 文件操作 (File Operations)
+--------------------------------------------------------------------------------
+
+lfs.mkdir(path)
+描述：创建目录。
+返回：成功返回 true，失败返回 nil, error。
+
+lfs.rmdir(path)
+描述：删除空目录。
+返回：成功返回 true，失败返回 nil, error。
+
+lfs.touch(path, [atime], [mtime])
+描述：更新文件的访问和修改时间。
+参数：atime/mtime 为 Unix Timestamp (数字)。如果不传，默认为当前时间。
+返回：成功返回 true，失败返回 nil, error。
+
+lfs.link(old, new, [symlink])
+描述：创建硬链接或符号链接。
+参数：symlink (bool) 为 true 时创建符号链接，false 为硬链接 (默认)。
+返回：成功返回 true，失败返回 nil, error。
+注意：Windows 下创建符号链接通常需要管理员权限或开启开发者模式。
+
+lfs.setmode(file, mode)
+描述：设置已打开文件的读写模式 (Windows 专用)。
+参数：
+- file: 文件句柄 (io.open 返回的 userdata 或 lfs.fopen 返回的 FileHandle)。
+- mode: "binary" 或 "text"。
+返回：success (true), previous_mode (字符串 "binary" 或 "text")。
+备注：在 POSIX 系统上此函数为空操作，始终返回 true, "binary"。
+
+--------------------------------------------------------------------------------
+3.3 目录遍历 (Directory Iteration)
+--------------------------------------------------------------------------------
+
+lfs.dir(path)
+描述：创建一个迭代器遍历目录内容。
+返回：iterator_func, dir_obj。
+
+用法示例：
+for filename, obj in lfs.dir(".") do
+    if filename ~= "." and filename ~= ".." then
+        print(filename)
+    end
+end
+
+备注：
+- Windows 下 obj 是一个包含 _wfinddata_t 的对象，包含缓存的属性 (如 obj:size(), obj:mode())，可避免重复调用 stat。
+- 迭代器包含 __gc 元方法，中断遍历会自动关闭句柄，防止资源泄漏。
+
+--------------------------------------------------------------------------------
+3.4 文件锁 (File Locking)
+--------------------------------------------------------------------------------
+
+lfs.lock(filehandle, mode, [start], [length])
+描述：对文件区域加锁。
+参数：
+- filehandle: 打开的文件句柄。
+- mode: "r" (共享锁/读锁) 或 "w" (独占锁/写锁)。
+- start: 起始偏移量 (默认 0)。
+- length: 锁定长度 (默认到文件末尾)。
+返回：成功返回 true，失败返回 nil, error。
+
+lfs.unlock(filehandle, [start], [length])
+描述：解锁文件区域。
+返回：成功返回 true，失败返回 nil, error。
+
+lfs.lock_dir(path, [seconds_stale])
+描述：创建一个目录锁 (通过在目标目录创建 lockfile.lfs 文件实现)。
+返回：lock_object (使用完毕需调用 lock_object:free() 释放) 或 nil, error。
+
+--------------------------------------------------------------------------------
+3.5 扩展 API (Unicode 与 FFI 特有)
+--------------------------------------------------------------------------------
+
+以下 API 是本库特有，主要为了解决标准 io 库在 Windows 下的编码问题。
+
+lfs.fopen(path, mode)
+描述：使用 Unicode 路径打开文件。
+行为：Windows 下调用 _wfopen，Linux 下调用 fopen。
+返回：自定义 FileHandle 对象 (模拟标准 Lua file userdata) 或 nil, error。
+FileHandle 方法支持：read, write, seek, close, flush, lines, setvbuf。
+兼容性：该对象可传入 lfs.lock/unlock。
+
+lfs.remove_file(path)
+描述：删除文件 (支持 Windows Unicode)。替代 os.remove。
+返回：boolean。
+
+lfs.rename_file(old, new)
+描述：重命名/移动文件 (支持 Windows Unicode)。替代 os.rename。
+返回：boolean。
+
+================================================================================
+4. 技术实现内幕 (Technical Details)
+================================================================================
+
+4.1 统一的 Unicode 路径处理
+标准 Lua 的 io 和 os 库在 Windows 上使用的是 ANSI API (如 fopen, remove)，导致无法处理包含中文或 Emoji 的路径。
+lfs_ffi 在 Windows 下完全绕过了 CRT 的 ANSI 接口：
+1. 宽字符转换：内部使用 MultiByteToWideChar (CP_UTF8) 将 Lua 的 UTF-8 字符串转换为 UTF-16LE (WCHAR)。
+2. API 映射：
+   attributes -> _wstat64
+   dir -> _wfindfirst / _wfindnext
+   chdir -> _wchdir
+   mkdir -> _wmkdir
+   fopen -> _wfopen
+3. lstat 模拟：Windows 没有原生的 lstat。本库通过 _wfindfirst 获取文件属性，并检查 FILE_ATTRIBUTE_REPARSE_POINT 标志来手动识别符号链接，从而正确实现 symlinkattributes。
+
+4.2 文件句柄与流 (File Handles & Streams)
+lfs.fopen 返回的不是 Lua 原生的 FILE* userdata，而是一个封装了 FILE* (cdata) 的 Lua table。
+- 原因：Lua 的 userdata 布局是私有的，FFI 无法直接创建兼容原生 io 库的 userdata。
+- 兼容性：这个 table 实现了 __index 指向自身的方法 (read, write 等)，模拟了原生文件对象的行为。底层直接调用 fread/fwrite。
+- 限制：这个自定义对象不能传递给依赖原生 Lua C API (luaL_checkudata) 的第三方 C 库，但可以传递给本库的 lfs.lock。
+
+4.3 文件锁机制 (Locking)
+lfs.lock 在不同平台映射到不同的系统调用：
+- Windows：使用 _locking (msvcrt)。
+  mode='r' 或 'w' 均映射为 _LK_NBLCK (非阻塞锁)。
+  Windows 的文件锁是强制性的 (Mandatory)，锁定区域无法被其他进程读写。
+- POSIX：使用 fcntl (struct flock)。
+  mode='r' 映射为 F_RDLCK (读锁/共享锁)。
+  mode='w' 映射为 F_WRLCK (写锁/独占锁)。
+  POSIX 锁通常是建议性的 (Advisory)。
+
+4.4 时间精度
+- Windows：使用 _stat64，本身支持到秒。
+- Linux：检测 st_mtim (struct timespec)，如果存在，attributes 返回的 table 中会包含 modification_ns 字段，提供纳秒级精度。
+- macOS：检测 st_mtimespec。
+
+4.5 资源管理 (GC)
+- 目录迭代器：lfs.dir 返回的目录对象挂载了 __gc 元方法。如果用户通过 break 中断遍历，GC 会负责调用 _findclose (Windows) 或 closedir (POSIX)，防止句柄泄漏。
+- 文件句柄：lfs.fopen 返回的对象同样挂载了 __gc，自动调用 fclose。
