@@ -22,12 +22,10 @@ jobs:
       - name: Setup MSVC
         uses: ilammy/msvc-dev-cmd@v1
 
-      # 1. 依赖管理
-      - name: Update Header-Only & Script Deps
+      - name: Update Deps
         shell: pwsh
         run: .\update_vendor.ps1
 
-      # 2. 编译 LuaJIT
       - name: Cache LuaJIT
         id: cache-luajit
         uses: actions/cache@v3
@@ -45,26 +43,28 @@ jobs:
           mkdir "%LUAJIT_BIN_DIR%\bin"
           mkdir "%LUAJIT_BIN_DIR%\lib"
           mkdir "%LUAJIT_BIN_DIR%\include"
+          mkdir "%LUAJIT_BIN_DIR%\jit"
           
           copy lua51.dll "%LUAJIT_BIN_DIR%\bin\"
           copy luajit.exe "%LUAJIT_BIN_DIR%\bin\"
           copy lua51.lib "%LUAJIT_BIN_DIR%\lib\"
           
-          rem 显式复制所有头文件
+          rem 复制头文件
           copy lua.h "%LUAJIT_BIN_DIR%\include\"
           copy lualib.h "%LUAJIT_BIN_DIR%\include\"
           copy lauxlib.h "%LUAJIT_BIN_DIR%\include\"
           copy luaconf.h "%LUAJIT_BIN_DIR%\include\"
           copy luajit.h "%LUAJIT_BIN_DIR%\include\"
           copy lua.hpp "%LUAJIT_BIN_DIR%\include\"
+          
+          rem [新增] 复制 JIT 库文件 (vmdef.lua, bc.lua 等)
+          copy jit\*.lua "%LUAJIT_BIN_DIR%\jit\"
 
-      # 3. 编译 PEShell Host
       - name: Build PEShell
         run: |
           cmake -S . -B build -G "Ninja" -DCMAKE_BUILD_TYPE=Release
           cmake --build build --config Release
 
-      # 4. 组装最终包
       - name: Assemble Package
         shell: pwsh
         run: |
@@ -72,6 +72,8 @@ jobs:
           $bin = New-Item -ItemType Directory -Path "$pkg/bin"
           $lua = New-Item -ItemType Directory -Path "$pkg/share/lua/5.1"
           $lib = New-Item -ItemType Directory -Path "$lua/lib"
+          # [新增] JIT 库目录
+          $jit = New-Item -ItemType Directory -Path "$lua/jit"
 
           # A. 二进制
           Copy-Item "build/bin/peshell.exe" $bin
@@ -80,16 +82,18 @@ jobs:
 
           # B. 脚本
           Copy-Item "scripts/core", "scripts/plugins", "scripts/*.lua" $lua -Recurse
+          
+          # C. JIT 库 (放在 share/lua/5.1/jit)
+          Copy-Item "${{ env.LUAJIT_BIN_DIR }}\jit\*.lua" $jit
 
-          # C. 纯 Lua 依赖库
+          # D. 纯 Lua 依赖库
           Copy-Item "vendor/lua-ext" "$lib/ext" -Recurse -Exclude .git,vendor
           Copy-Item "vendor/lua-ffi-bindings" "$lib/ffi" -Recurse -Exclude .git,vendor
           Copy-Item "vendor/proc_utils/proc_utils_ffi.lua" $lib
           Copy-Item "vendor/lfs/lfs_ffi.lua" $lib
-          # [修复] 复制 luaunit 到 lib
           Copy-Item "vendor/luaunit/luaunit.lua" $lib
 
-          # D. VC++ Runtime
+          # E. VC++ Runtime
           $vctools = $env:VCToolsRedistDir
           $crt = Join-Path $vctools "x64/Microsoft.VC14*.CRT"
           Write-Host "Copying CRT from $crt"
@@ -97,7 +101,6 @@ jobs:
 
           echo "PACKAGE_PATH=$pkg" >> $env:GITHUB_ENV
 
-      # 5. 冒烟测试
       - name: Smoke Test
         working-directory: ${{ env.PACKAGE_PATH }}
         run: |

@@ -50,6 +50,8 @@ jobs:
           mkdir "%LUAJIT_BIN_DIR%\bin"
           mkdir "%LUAJIT_BIN_DIR%\lib"
           mkdir "%LUAJIT_BIN_DIR%\include"
+          mkdir "%LUAJIT_BIN_DIR%\jit"
+          
           copy lua51.dll "%LUAJIT_BIN_DIR%\bin\"
           copy luajit.exe "%LUAJIT_BIN_DIR%\bin\"
           copy lua51.lib "%LUAJIT_BIN_DIR%\lib\"
@@ -60,6 +62,9 @@ jobs:
           copy luaconf.h "%LUAJIT_BIN_DIR%\include\"
           copy luajit.h "%LUAJIT_BIN_DIR%\include\"
           copy lua.hpp "%LUAJIT_BIN_DIR%\include\"
+          
+          rem [新增]
+          copy jit\*.lua "%LUAJIT_BIN_DIR%\jit\"
 
       - name: Build PEShell
         run: |
@@ -81,24 +86,23 @@ jobs:
           $bin = New-Item -ItemType Directory -Path "$pkg/bin"
           $lua = New-Item -ItemType Directory -Path "$pkg/share/lua/5.1"
           $lib = New-Item -ItemType Directory -Path "$lua/lib"
+          $jit = New-Item -ItemType Directory -Path "$lua/jit"
 
-          # Binaries
           Copy-Item "build/bin/peshell.exe" $bin
           Copy-Item "${{ env.LUAJIT_BIN_DIR }}\bin\lua51.dll" $bin
           Copy-Item "start_peshell_main.bat" $pkg
 
-          # Scripts
           Copy-Item "scripts/core", "scripts/plugins", "scripts/*.lua" $lua -Recurse
           
-          # Libraries
+          # [新增] JIT Libs
+          Copy-Item "${{ env.LUAJIT_BIN_DIR }}\jit\*.lua" $jit
+          
           Copy-Item "vendor/lua-ext" "$lib/ext" -Recurse -Exclude .git,vendor
           Copy-Item "vendor/lua-ffi-bindings" "$lib/ffi" -Recurse -Exclude .git,vendor
           Copy-Item "vendor/proc_utils/proc_utils_ffi.lua" $lib
           Copy-Item "vendor/lfs/lfs_ffi.lua" $lib
-          # [修复] 包含 LuaUnit
           Copy-Item "vendor/luaunit/luaunit.lua" $lib
 
-          # CRT
           $vctools = $env:VCToolsRedistDir
           Copy-Item "$vctools/x64/Microsoft.VC14*.CRT/*.dll" $bin -Force
 
