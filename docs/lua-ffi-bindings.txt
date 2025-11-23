@@ -1,0 +1,311 @@
+Lua-FFI-Bindings 完整 API 规格说明书
+版本：dev-1
+适用环境：LuaJIT 2.0 / 2.1 (Windows/Linux/macOS)
+文档生成时间：2025-11-22
+
+================================================================================
+1. 快速上手 (Quick Start)
+================================================================================
+
+本库是 C 语言头文件的替代品。你不需要 `ffi.cdef`，只需 `require` 对应的模块路径。
+
+```lua
+local ffi = require 'ffi'
+-- 1. 加载定义 (相当于 #include <stdio.h>)
+require 'ffi.req' 'c.stdio'
+-- 2. 加载 Windows Kernel32 定义 (相当于 #include <windows.h>)
+require 'ffi.req' 'Windows.sdk.kernel32'
+
+-- 3. 使用 (直接调用 ffi.C 或加载的库)
+local kernel32 = ffi.load('kernel32')
+local handle = kernel32.GetCurrentProcessId()
+```
+
+**核心机制**:
+- `require 'ffi.req' '模块名'`：智能加载器。会自动根据 OS (Windows/Linux) 和架构 (x64/x86) 查找最匹配的定义文件。
+- `require 'ffi.load' '库名'`：跨平台动态库加载器。例如 `'socket'` 会自动映射为 `ws2_32.dll` (Win) 或 `libc.so` (Linux)。
+
+================================================================================
+2. Windows SDK 模块详解
+================================================================================
+
+以下模块位于 `Windows.sdk.` 命名空间。
+**重要提示**：本库强制使用 Unicode。凡是涉及字符串的 API，**必须**传入 `ffi.new("wchar_t[?]", ...)` 或使用 `lua-ext` / `proc_utils` 提供的转换工具。
+
+--------------------------------------------------------------------------------
+2.1 基础类型定义 (Windows.sdk.minwindef)
+--------------------------------------------------------------------------------
+*该模块被其他 SDK 模块自动加载，无需手动 require。*
+
+**类型映射**:
+- `DWORD` -> `unsigned long`
+- `WORD` -> `unsigned short`
+- `BYTE` -> `unsigned char`
+- `BOOL` -> `int`
+- `HANDLE`, `HINSTANCE`, `HMODULE`, `HWND`, `HLOCAL` -> `void*`
+- `LPCWSTR`, `LPWSTR` -> `wchar_t*`
+- `LPSTR`, `LPCSTR` -> `char*`
+- `PVOID`, `LPVOID` -> `void*`
+- `ULONG` -> `unsigned long`
+- `LONG` -> `long`
+- `ULONGLONG` -> `unsigned long long`
+
+--------------------------------------------------------------------------------
+2.2 核心内核 (Windows.sdk.kernel32)
+--------------------------------------------------------------------------------
+**加载方式**: `local k32 = ffi.load("kernel32"); require 'ffi.req' 'Windows.sdk.kernel32'`
+
+**常量**:
+- `PROCESS_TERMINATE`, `PROCESS_QUERY_INFORMATION`, `PROCESS_ALL_ACCESS` 等权限掩码。
+- `WAIT_OBJECT_0` (0), `WAIT_TIMEOUT` (258), `WAIT_FAILED` (0xFFFFFFFF)。
+- `ERROR_ACCESS_DENIED` (5), `ERROR_INVALID_PARAMETER` (87) 等。
+- `CP_UTF8` (65001)。
+
+**结构体**:
+- `STARTUPINFOW`: 包含 `cb`, `dwFlags`, `wShowWindow`, `hStdInput/Output/Error` 等。
+- `PROCESS_INFORMATION`: 包含 `hProcess`, `hThread`, `dwProcessId`, `dwThreadId`。
+- `PROCESSENTRY32W`: 用于 ToolHelp32 快照遍历 (szExeFile 为 `WCHAR[260]`)。
+
+**函数原型**:
+
+[进程与线程]
+- `BOOL CreateProcessW(LPCWSTR appName, LPWSTR cmdLine, void* procAttr, void* threadAttr, BOOL inherit, DWORD flags, void* env, LPCWSTR dir, STARTUPINFOW* si, PROCESS_INFORMATION* pi)`
+- `HANDLE OpenProcess(DWORD access, BOOL inherit, DWORD pid)`
+- `BOOL TerminateProcess(HANDLE hProcess, UINT exitCode)`
+- `DWORD WaitForSingleObject(HANDLE hHandle, DWORD ms)`
+- `void Sleep(DWORD ms)`
+- `DWORD GetCurrentProcessId(void)`
+- `DWORD GetProcessId(HANDLE hProcess)`
+- `BOOL SetPriorityClass(HANDLE hProcess, DWORD priorityClass)`
+- `BOOL ProcessIdToSessionId(DWORD pid, DWORD* sessionId)`
+- `DWORD WTSGetActiveConsoleSessionId(void)`
+
+[工具帮助 (ToolHelp32)]
+- `HANDLE CreateToolhelp32Snapshot(DWORD flags, DWORD pid)`
+- `BOOL Process32FirstW(HANDLE hSnap, PROCESSENTRY32W* lppe)`
+- `BOOL Process32NextW(HANDLE hSnap, PROCESSENTRY32W* lppe)`
+
+[文件与路径]
+- `HANDLE CreateFileW(LPCWSTR name, DWORD access, DWORD share, void* security, DWORD creation, DWORD flags, HANDLE template)`
+- `BOOL CreateHardLinkW(LPCWSTR fileName, LPCWSTR existingFileName, void* security)`
+- `BOOLEAN CreateSymbolicLinkW(LPCWSTR symlinkFileName, LPCWSTR targetFileName, DWORD flags)`
+- `DWORD GetShortPathNameW(LPCWSTR longPath, LPWSTR shortPath, DWORD bufLen)`
+- `DWORD GetTempPathW(DWORD bufLen, LPWSTR buf)`
+- `UINT GetTempFileNameW(LPCWSTR path, LPCWSTR prefix, UINT unique, LPWSTR tempFileName)`
+- `DWORD GetModuleFileNameW(HMODULE hMod, LPWSTR filename, DWORD size)`
+- `BOOL QueryFullProcessImageNameW(HANDLE hProcess, DWORD flags, LPWSTR exeName, DWORD* size)`
+
+[内存与杂项]
+- `BOOL ReadProcessMemory(HANDLE hProcess, const void* baseAddr, void* buf, size_t size, size_t* bytesRead)`
+- `HLOCAL LocalFree(HLOCAL hMem)`
+- `BOOL CloseHandle(HANDLE hObject)`
+- `DWORD GetTickCount(void)`
+- `ULONGLONG GetTickCount64(void)`
+
+[编码与错误]
+- `int WideCharToMultiByte(UINT cp, DWORD flags, LPCWSTR wstr, int chars, LPSTR str, int bytes, LPCSTR defChar, int* usedDef)`
+- `int MultiByteToWideChar(UINT cp, DWORD flags, LPCSTR str, int bytes, LPWSTR wstr, int chars)`
+- `DWORD GetLastError(void)`
+- `void SetLastError(DWORD code)`
+- `DWORD FormatMessageW(DWORD flags, const void* src, DWORD msgId, DWORD langId, LPWSTR buf, DWORD size, void* args)`
+
+--------------------------------------------------------------------------------
+2.3 进程状态 (Windows.sdk.psapi)
+--------------------------------------------------------------------------------
+**加载方式**: `local psapi = ffi.load("psapi"); require 'ffi.req' 'Windows.sdk.psapi'`
+
+**结构体**:
+- `PROCESS_MEMORY_COUNTERS_EX`: 包含 `WorkingSetSize`, `PrivateUsage` 等。
+
+**函数原型**:
+- `DWORD GetModuleFileNameExW(HANDLE hProcess, HMODULE hModule, LPWSTR filename, DWORD size)`
+- `BOOL GetProcessMemoryInfo(HANDLE hProcess, void* ppsmemCounters, DWORD cb)`
+
+--------------------------------------------------------------------------------
+2.4 高级安全 (Windows.sdk.advapi32)
+--------------------------------------------------------------------------------
+**加载方式**: `local adv = ffi.load("advapi32"); require 'ffi.req' 'Windows.sdk.advapi32'`
+
+**常量**:
+- `MAXIMUM_ALLOWED`
+- `CREATE_UNICODE_ENVIRONMENT` (0x00000400)
+
+**枚举**:
+- `SECURITY_IMPERSONATION_LEVEL`: `SecurityIdentification` (1)
+- `TOKEN_TYPE`: `TokenPrimary` (1)
+
+**函数原型**:
+- `BOOL CreateProcessAsUserW(HANDLE hToken, LPCWSTR app, LPWSTR cmd, void* pAttr, void* tAttr, BOOL inherit, DWORD flags, void* env, LPCWSTR dir, void* si, void* pi)`
+- `BOOL DuplicateTokenEx(HANDLE hExisting, DWORD access, void* attr, int level, int type, HANDLE* phNew)`
+
+--------------------------------------------------------------------------------
+2.5 终端服务 (Windows.sdk.wtsapi32)
+--------------------------------------------------------------------------------
+**加载方式**: `local wts = ffi.load("wtsapi32"); require 'ffi.req' 'Windows.sdk.wtsapi32'`
+
+**函数原型**:
+- `BOOL WTSQueryUserToken(ULONG sessionId, HANDLE* phToken)`
+
+--------------------------------------------------------------------------------
+2.6 用户环境 (Windows.sdk.userenv)
+--------------------------------------------------------------------------------
+**加载方式**: `local uenv = ffi.load("userenv"); require 'ffi.req' 'Windows.sdk.userenv'`
+
+**函数原型**:
+- `BOOL CreateEnvironmentBlock(void** lpEnv, HANDLE hToken, BOOL inherit)`
+- `BOOL DestroyEnvironmentBlock(void* lpEnv)`
+
+--------------------------------------------------------------------------------
+2.7 NT 底层 API (Windows.sdk.ntdll)
+--------------------------------------------------------------------------------
+**加载方式**: `local ntdll = ffi.load("ntdll"); require 'ffi.req' 'Windows.sdk.ntdll'`
+
+**结构体**:
+- `UNICODE_STRING`: `{ Length, MaximumLength, Buffer }`
+- `RTL_USER_PROCESS_PARAMETERS`: 包含 `ImagePathName`, `CommandLine` (均为 UNICODE_STRING)。
+- `PEB`: 包含 `ProcessParameters` 指针。
+- `PROCESS_BASIC_INFORMATION`: 包含 `ExitStatus`, `PebBaseAddress`。
+
+**函数原型**:
+- `long __stdcall NtQueryInformationProcess(HANDLE hProcess, int infoClass, PVOID info, ULONG len, ULONG* retLen)`
+  - `infoClass`: 0 (ProcessBasicInformation)
+
+--------------------------------------------------------------------------------
+2.8 外壳 (Windows.sdk.shell32)
+--------------------------------------------------------------------------------
+**加载方式**: `local shell = require 'ffi.req' 'Windows.sdk.shell32'` (注意：此模块返回封装后的对象)
+
+**原生函数 (ffi.C)**:
+- `LPWSTR* CommandLineToArgvW(LPCWSTR cmdLine, int* numArgs)`
+- `LPCWSTR GetCommandLineW(void)`
+
+**Lua 封装辅助函数**:
+- `shell.commandline_to_argv(cmd_line_string)`: 输入 UTF-8 字符串，返回参数 table。
+- `shell.get_arguments()`: 获取当前进程的参数 table (UTF-8)。
+
+================================================================================
+3. C 标准库 (CRT) 模块详解
+================================================================================
+
+以下模块位于 `c.` 命名空间，大多数定义在 `ffi.C` 中。
+**Windows 特性**：本库自动将标准函数映射为 Microsoft UCRT 的宽字符版本。
+
+--------------------------------------------------------------------------------
+3.1 文件操作 (c.stdio / c.io)
+--------------------------------------------------------------------------------
+**req**: `c.stdio` (标准), `c.io` (Windows底层)
+
+**结构体**: `FILE`, `struct _finddata32_t` / `_finddata64i32_t` (Windows)
+
+**Windows 特有函数**:
+- `int _fileno(FILE* stream)`
+- `int _setmode(int fd, int mode)`: 模式 0x4000 (Text), 0x8000 (Binary)。
+- `int _locking(int fd, int mode, long nbytes)`
+- `FILE* _wfopen(const wchar_t* filename, const wchar_t* mode)`
+- `FILE* _wpopen(const wchar_t* cmd, const wchar_t* mode)`
+- `int _pclose(FILE* stream)`
+- `intptr_t _wfindfirst64i32(const wchar_t* name, struct _wfinddata64i32_t* fileinfo)`
+- `int _wfindnext64i32(intptr_t handle, struct _wfinddata64i32_t* fileinfo)`
+- `int _findclose(intptr_t handle)`
+
+**标准函数 (全平台)**:
+- `fopen`, `fclose`, `fread`, `fwrite`, `fflush`, `fseek`, `ftell`, `feof`
+- `printf`, `sprintf`, `snprintf` (Windows下为 `_snprintf`)
+
+--------------------------------------------------------------------------------
+3.2 目录操作 (c.direct / c.unistd)
+--------------------------------------------------------------------------------
+**req**: `c.direct` (Windows), `c.unistd` (Linux/Mac)
+
+**Windows 特有函数**:
+- `int _wchdir(const wchar_t* path)`
+- `wchar_t* _wgetcwd(wchar_t* buffer, int maxlen)`
+- `int _wmkdir(const wchar_t* path)`
+- `int _wrmdir(const wchar_t* path)`
+
+--------------------------------------------------------------------------------
+3.3 文件状态 (c.sys.stat)
+--------------------------------------------------------------------------------
+**req**: `c.sys.stat`
+
+**结构体**: `struct stat` (在 Windows 下自动 typedef 为 `struct _stat64`)
+
+**函数**:
+- `int stat(const char* path, struct stat* buf)`
+- `int _wstat64(const wchar_t* path, struct _stat64* buf)` (Windows)
+
+--------------------------------------------------------------------------------
+3.4 环境与转换 (c.stdlib)
+--------------------------------------------------------------------------------
+**req**: `c.stdlib`
+
+**函数**:
+- `void* malloc(size_t size)`
+- `void free(void* ptr)`
+- `int system(const char* cmd)` / `int _wsystem(const wchar_t* cmd)`
+- `char* getenv(const char* var)` / `wchar_t* _wgetenv(const wchar_t* var)`
+- `int _wputenv_s(const wchar_t* var, const wchar_t* val)`
+
+--------------------------------------------------------------------------------
+3.5 时间 (c.time)
+--------------------------------------------------------------------------------
+**req**: `c.time`
+
+**结构体**: `struct tm`, `struct timespec`
+
+**函数**:
+- `time_t time(time_t* timer)`
+- `struct tm* gmtime(const time_t* timer)`
+- `wchar_t* _wctime(const time_t* timer)` (Windows)
+
+================================================================================
+4. 实用工具模块
+================================================================================
+
+4.1 错误处理 (c.errno)
+--------------------------------------------------------------------------------
+**req**: `c.errno` (返回一个 table)
+
+**API**:
+- `errno.errno()`: 获取当前 `errno` 值 (number)。
+- `errno.str()`: 获取当前 `errno` 对应的错误描述字符串 (string)。
+- `errno.EACCES`, `errno.ENOENT` 等常量定义。
+
+================================================================================
+5. 开发示例：不看源码写代码
+================================================================================
+
+**任务**：在 Windows 下创建一个目录 "C:\Test 🚀"，并检查是否创建成功。
+
+**查阅文档**：
+1. 目录操作在 `3.2 c.direct` -> `_wmkdir`。
+2. 宽字符转换需 `kernel32` -> `MultiByteToWideChar`。
+3. 错误检查在 `c.errno`。
+
+**代码实现**：
+```lua
+local ffi = require 'ffi'
+local C = ffi.C
+
+-- 1. 加载定义
+require 'ffi.req' 'c.direct'           -- 引入 _wmkdir
+require 'ffi.req' 'Windows.sdk.kernel32' -- 引入 MultiByteToWideChar
+local errno = require 'ffi.req' 'c.errno'
+
+-- 2. 辅助：UTF-8 转 WCHAR (根据 2.2 节 API)
+local function to_w(str)
+    local CP_UTF8 = 65001
+    local len = C.MultiByteToWideChar(CP_UTF8, 0, str, -1, nil, 0)
+    local buf = ffi.new("wchar_t[?]", len)
+    C.MultiByteToWideChar(CP_UTF8, 0, str, -1, buf, len)
+    return buf
+end
+
+-- 3. 调用
+local path = to_w("C:\\Test 🚀")
+if C._wmkdir(path) == 0 then
+    print("Success")
+else
+    print("Failed: " .. errno.str())
+end
+```
