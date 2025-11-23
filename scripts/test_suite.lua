@@ -1,6 +1,6 @@
 -- scripts/test_suite.lua
 -- PEShell API Test Suite (Refactored for Lua-Ext & FFI-Bindings)
--- Version: 9.2 (Fix Native Handle passing and Env Vars)
+-- Version: 9.4 (Ensure MockUser dir exists)
 
 local lu = require("luaunit")
 local log = _G.log
@@ -38,7 +38,6 @@ local function to_w(str)
     return buf
 end
 
--- [FIX] Use ffi.metatype to create cdata that C++ can recognize via LUA_TCDATA
 local safe_handle_mt = {
     __gc = function(t)
         if t.h ~= nil and t.h ~= ffi.cast("void*", -1) then
@@ -121,7 +120,9 @@ function TestPeApi:testInitialize()
     
     local mock_user = temp_dir / "MockUser"
     
-    -- [FIX] Use ext.os.setenv to ensure os.getenv sees the change
+    -- [FIX] Ensure mock user root exists before setting var
+    if not mock_user:exists() then mock_user:mkdir(true) end
+    
     os_ext.setenv("USERPROFILE", mock_user:str())
     
     pe.initialize()
@@ -195,7 +196,6 @@ function TestShellGuardian:testGuardianLifecycle()
     local raw_h_ready = k32.CreateEventW(nil, 1, 0, to_w(ev_ready_name))
     local raw_h_respawn = k32.CreateEventW(nil, 1, 0, to_w(ev_respawn_name))
     
-    -- h_ready is now a cdata (SafeHandle_t)
     local h_ready = AutoHandle(raw_h_ready)
     local h_respawn = AutoHandle(raw_h_respawn)
     
@@ -206,7 +206,6 @@ function TestShellGuardian:testGuardianLifecycle()
     local g_proc = process.exec_async({ command = guardian_args })
     lu.assertNotIsNil(g_proc, "Failed to launch guardian")
     
-    -- Now passing cdata table, C++ should accept it
     local idx = _G.pesh_native.wait_for_multiple_objects_blocking({ h_ready }, 15000)
     lu.assertEquals(idx, 1, "Timeout waiting for READY signal")
     
