@@ -11,8 +11,8 @@ $VendorDir = Join-Path $PSScriptRoot "vendor"
 $ProcUtilsUrl = "https://raw.githubusercontent.com/daiaji/proc_utils/refs/heads/main/proc_utils_ffi.lua"
 $LfsFfiUrl    = "https://raw.githubusercontent.com/daiaji/luafilesystem/main/lfs_ffi.lua"
 $CtplUrl      = "https://raw.githubusercontent.com/vit-vit/CTPL/master/ctpl_stl.h"
-# spdlog v1.12.0
-$SpdlogUrl    = "https://github.com/gabime/spdlog/archive/refs/tags/v1.12.0.zip"
+# spdlog v1.16.0
+$SpdlogUrl    = "https://github.com/gabime/spdlog/archive/refs/tags/v1.16.0.zip"
 
 # === 工具函数 ===
 function Ensure-Dir($Path) { if (-not (Test-Path $Path)) { New-Item -ItemType Directory -Path $Path | Out-Null } }
@@ -35,7 +35,7 @@ if (-not (Test-Path "$VendorDir/spdlog/include")) {
     $Zip = "$VendorDir/spdlog.zip"
     Download $SpdlogUrl $Zip
     Expand-Archive $Zip -DestinationPath $VendorDir -Force
-    # 找到解压后的目录 (通常是 spdlog-1.12.0)
+    # 找到解压后的目录 (通常是 spdlog-1.16.0)
     $Extracted = Get-ChildItem $VendorDir -Directory -Filter "spdlog-*" | Select-Object -First 1
     # 移动 include 目录
     Move-Item "$($Extracted.FullName)/include" "$VendorDir/spdlog/"
