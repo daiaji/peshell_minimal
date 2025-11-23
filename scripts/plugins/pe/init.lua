@@ -4,17 +4,14 @@
 local pesh = _G.pesh
 local M = {}
 
--- 依赖
 local log = _G.log
 local ffi = require("ffi")
 local path = require("ext.path")
 local os_ext = require("ext.os")
 
--- 使用 lua-ffi-bindings 加载 API
 require("ffi.req")("Windows.sdk.kernel32")
 require("ffi.req")("Windows.sdk.advapi32")
 
--- 补充定义
 ffi.cdef[[
     long RegInstallW(void* hMod, const wchar_t* pszSection, const void* pstTable);
     long CoInitialize(void* pvReserved);
@@ -26,7 +23,6 @@ local ole32 = ffi.load("ole32")
 function M.initialize()
     log.info("PE: Starting core environment initialization...")
 
-    -- 1. 创建用户目录
     local user_profile = os.getenv("USERPROFILE")
     if not user_profile then
         log.error("USERPROFILE not set.")
@@ -40,16 +36,16 @@ function M.initialize()
     }
     
     for _, subdir in ipairs(directories) do
-        local p = path(user_profile):join(subdir)
+        -- [FIX] 使用 / 运算符
+        local p = path(user_profile) / subdir
         if not os_ext.mkdir(p:str(), true) then
             if not p:isdir() then
-                log.warn("Could not create directory: ", p)
+                log.warn("Could not create directory: ", p:str())
             end
         end
     end
     log.info("PE: User folders created.")
 
-    -- 2. 注册 Shell 组件
     local function to_w(s) 
         local len = ffi.C.MultiByteToWideChar(65001, 0, s, -1, nil, 0)
         local buf = ffi.new("wchar_t[?]", len)
@@ -64,7 +60,6 @@ function M.initialize()
         log.info("PE: shell32 components registered.")
     end
 
-    -- 3. 初始化 COM
     ole32.CoInitialize(nil)
     log.info("PE: COM initialized.")
 
