@@ -1,6 +1,6 @@
 -- scripts/test_async.lua
 -- 用于测试全新异步/等待模型的脚本 (Modernized & Cleaned)
--- v9.0 - Final Clean Version (Using Enhanced Path Object)
+-- Version: 9.1 (Consistent string conversion)
 
 if not (_G.arg and _G.arg[1] == "run_from_main") then
     local log = require("core.log")
@@ -23,7 +23,6 @@ local path = require("ext.path")
 local fs_ext = require("ext.io")
 local os_ext = require("ext.os")
 
--- Use path object
 local temp_dir = path(os.getenv("TEMP") or ".") / "_peshell_async_test"
 
 local function main_task()
@@ -31,26 +30,24 @@ local function main_task()
     log.info("  Starting Asynchronous Test Suite with await")
     log.info("==============================================")
 
-    -- Use :mkdir()
-    if not temp_dir:exists() then temp_dir:mkdir(true) end
+    if not temp_dir:exists() then os_ext.mkdir(tostring(temp_dir), true) end
     
-    local source_file = temp_dir / "source.txt"
-    local dest_file = temp_dir / "dest.txt"
+    local source_file = tostring(temp_dir / "source.txt")
+    local dest_file = tostring(temp_dir / "dest.txt")
     
     local test_content = "Async content!"
-    fs_ext.writefile(source_file:str(), test_content)
+    fs_ext.writefile(source_file, test_content)
 
     log.info("\n[1/4] Testing await on async file copy...")
-    -- Pass strings to async functions as they pass to C++ which expects strings
-    local status, msg = pcall(await, fs_async.copy_file_async, source_file:str(), dest_file:str())
+    local status, msg = pcall(await, fs_async.copy_file_async, source_file, dest_file)
     lu.assertTrue(status, "await(copy) should not throw an error. Got: " .. tostring(msg))
     log.info("  -> SUCCESS: Async copy completed.")
     
     await(async.sleep, 50)
-    lu.assertEquals(fs_ext.readfile(dest_file:str()), test_content, "Copied content must match.")
+    lu.assertEquals(fs_ext.readfile(dest_file), test_content, "Copied content must match.")
 
     log.info("\n[2/4] Testing await on async file read...")
-    local read_status, content_or_err = pcall(await, fs_async.read_file_async, source_file:str())
+    local read_status, content_or_err = pcall(await, fs_async.read_file_async, source_file)
     lu.assertTrue(read_status, "await(read) should not throw an error. Got: " .. tostring(content_or_err))
     lu.assertEquals(content_or_err, test_content, "Asynchronously read content must match source.")
     log.info("  -> SUCCESS: Async read completed and content verified.")
@@ -72,8 +69,7 @@ local function main_task()
     log.info("  -> Starting a long-running async copy in the background...")
     async.run(function() 
         local status_bg, msg_bg = pcall(function()
-            -- Concat path with string works if __concat or tostring is handled
-            await(fs_async.copy_file_async, source_file:str(), dest_file:str() .. ".concurrent")
+            await(fs_async.copy_file_async, source_file, dest_file .. ".concurrent")
         end)
         if status_bg then
             log.info("  -> BACKGROUND task finished successfully.")

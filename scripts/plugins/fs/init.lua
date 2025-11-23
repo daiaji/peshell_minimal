@@ -1,6 +1,6 @@
 -- scripts/plugins/fs/init.lua
--- 文件系统插件 (Enhanced Path Edition)
--- Version: 9.0
+-- 文件系统插件 (Lua-Ext & FFI Edition)
+-- Version: 9.1 (Fix missing CopyFileW symbol)
 
 local M = {}
 local log = _G.log
@@ -14,31 +14,39 @@ local lfs = require("lfs_ffi")
 require("ffi.req")("Windows.sdk.kernel32")
 local k32 = ffi.load("kernel32")
 
+-- [FIX] Explicitly define CopyFileW
+ffi.cdef[[
+    int CopyFileW(const wchar_t* lpExistingFileName, const wchar_t* lpNewFileName, int bFailIfExists);
+]]
+
 M.read_file = io_ext.readfile
 M.write_file = io_ext.writefile
 
--- 直接代理
 M.exists = path.exists
 M.is_dir = path.isdir
-M.is_file = path.isfile 
 
-function M.get_size(p) return path(p):stat().size end
-function M.get_mtime(p) return path(p):stat().modification end
+-- Check file mode robustly
+function M.is_file(p)
+    local mode = lfs.attributes(tostring(p), "mode")
+    return mode == "file"
+end
+
+function M.get_size(p) return path(p):attr().size end
+function M.get_mtime(p) return path(p):attr().modification end
 
 function M.mkdir(p)
-    -- path 对象现在有 :mkdir(recursive)
-    return path(p):mkdir(true)
+    return os_ext.mkdir(tostring(p), true)
 end
 
 function M.list_files(p)
     local res = {}
-    local p_obj = path(p)
-    
-    local iter, obj_iter = os_ext.listdir(p_obj:str())
+    local parent_str = tostring(p)
+    local iter, obj = os_ext.listdir(parent_str)
     if not iter then return res end
     
-    for f in iter, obj_iter do
-        if (p_obj / f):isfile() then
+    for f in iter, obj do
+        local full_path = path(parent_str) / f
+        if M.is_file(tostring(full_path)) then
             table.insert(res, f)
         end
     end
@@ -47,20 +55,19 @@ end
 
 function M.list_dirs(p)
     local res = {}
-    local p_obj = path(p)
-    
-    local iter, obj_iter = os_ext.listdir(p_obj:str())
+    local parent_str = tostring(p)
+    local iter, obj = os_ext.listdir(parent_str)
     if not iter then return res end
 
-    for f in iter, obj_iter do
-        if (p_obj / f):isdir() then
+    for f in iter, obj do
+        local full_path = path(parent_str) / f
+        if full_path:isdir() then
             table.insert(res, f)
         end
     end
     return res
 end
 
--- [Internal] FFI CopyFileW Wrapper (Still needed for Unicode robustness)
 local function copy_file_internal(src, dst, fail_if_exists)
     local CP_UTF8 = 65001
     local function to_w(s)
@@ -82,34 +89,37 @@ local function copy_file_internal(src, dst, fail_if_exists)
 end
 
 function M.copy(src, dst)
-    local src_p = path(src)
-    local dst_p = path(dst)
+    local src_str = tostring(src)
+    local dst_str = tostring(dst)
+    local src_p = path(src_str)
+    local dst_p = path(dst_str)
     
-    if not src_p:exists() then return false, "Source not found: " .. src_p:str() end
+    if not src_p:exists() then return false, "Source not found: " .. src_str end
     
-    if src_p:isfile() then
+    if M.is_file(src_str) then
         if dst_p:isdir() then
-            dst_p = dst_p / src_p:name()
+            local name = path(src_str):name() or path.basename(src_str)
+            dst_p = dst_p / name
         end
-        return copy_file_internal(src_p:str(), dst_p:str(), false)
+        return copy_file_internal(src_str, tostring(dst_p), false)
     
     elseif src_p:isdir() then
-        if not dst_p:exists() then dst_p:mkdir(true) end
+        if not dst_p:exists() then M.mkdir(dst_str) end
         
-        local iter, obj_iter = lfs.dir(src_p:str())
+        local iter, obj = lfs.dir(src_str)
         if not iter then return false, "Failed to list source directory" end
 
-        for name in iter, obj_iter do
+        for name in iter, obj do
             if name ~= "." and name ~= ".." then
                 local s = src_p / name
                 local d = dst_p / name
-                local ok, err = M.copy(s, d)
+                local ok, err = M.copy(tostring(s), tostring(d))
                 if not ok then return false, err end
             end
         end
         return true
     else
-        return false, "Unknown file type: " .. src_p:str()
+        return false, "Unknown file type: " .. src_str
     end
 end
 
@@ -118,22 +128,24 @@ function M.move(src, dst)
 end
 
 function M.delete(target)
-    local p = path(target)
+    local p_str = tostring(target)
+    local p = path(p_str)
     if not p:exists() then return true end
 
     if p:isdir() then
-        local iter, obj_iter = lfs.dir(p:str())
+        local iter, obj = lfs.dir(p_str)
         if iter then
-            for name in iter, obj_iter do
+            for name in iter, obj do
                 if name ~= "." and name ~= ".." then
-                    local ok, err = M.delete(p / name)
+                    local child = p / name
+                    local ok, err = M.delete(tostring(child))
                     if not ok then return false, err end
                 end
             end
         end
-        return p:remove() -- path:remove() handles rmdir/remove logic
+        return os_ext.rmdir(p_str)
     else
-        return p:remove()
+        return os_ext.remove(p_str)
     end
 end
 

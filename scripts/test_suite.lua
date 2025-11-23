@@ -1,19 +1,22 @@
 -- scripts/test_suite.lua
--- PEShell API Test Suite (Refactored for Enhanced Path Object)
--- Version: 9.0
+-- PEShell API Test Suite (Refactored for Lua-Ext & FFI-Bindings)
+-- Version: 9.1 (Fix USERPROFILE path separators)
 
 local lu = require("luaunit")
 local log = _G.log
 local pesh = _G.pesh
 local ffi = require("ffi")
 
+-- [DEPENDENCY] Lua-Ext
 local path = require("ext.path")
 local os_ext = require("ext.os")
 local fs_ext = require("ext.io")
 
+-- [DEPENDENCY] FFI Bindings
 require("ffi.req")("Windows.sdk.kernel32")
 local k32 = ffi.load("kernel32")
 
+-- [FIX] Explicitly define used APIs
 ffi.cdef[[
     int SetEnvironmentVariableW(const wchar_t* lpName, const wchar_t* lpValue);
     void* CreateEventW(void* lpEventAttributes, int bManualReset, int bInitialState, const wchar_t* lpName);
@@ -22,11 +25,13 @@ ffi.cdef[[
     unsigned long GetCurrentProcessId();
 ]]
 
+-- [DEPENDENCY] Plugins
 local process = pesh.plugin.load("process")
 local pe = pesh.plugin.load("pe")
 local fs = pesh.plugin.load("fs")
 local async = pesh.plugin.load("async")
 
+-- [HELPER] Unicode Conversion
 local function to_w(str)
     if not str then return nil end
     local CP_UTF8 = 65001
@@ -48,21 +53,25 @@ local function AutoHandle(raw_h)
     return setmetatable({ h = raw_h }, safe_handle_mt)
 end
 
--- Use path object
+-- [SETUP] Temporary Directory
 local temp_dir = path(os.getenv("TEMP") or ".") / "_peshell_test_temp"
 
 local function safe_setup()
     log.info("STARTING TEST SUITE")
+    local dir_str = tostring(temp_dir)
     
     if temp_dir:exists() then 
-        local ok, err = fs.delete(temp_dir)
-        if not ok then error("Failed to clean temp dir: " .. tostring(err)) end
+        local ok, err = fs.delete(dir_str)
+        if not ok then
+            error("Failed to clean temp dir: " .. tostring(err))
+        end
     end
     
-    -- Using path:mkdir method
-    local ok, err = temp_dir:mkdir(true)
-    if not ok and not temp_dir:exists() then
-        error("Failed to create temp dir: " .. tostring(err))
+    local ok, err = fs.mkdir(dir_str)
+    if not ok then
+        if not temp_dir:exists() then
+            error("Failed to create temp dir: " .. tostring(err))
+        end
     end
 end
 
@@ -75,7 +84,9 @@ function setupSuite()
 end
 
 function teardownSuite()
-    if temp_dir:exists() then fs.delete(temp_dir) end
+    if temp_dir:exists() then 
+        fs.delete(tostring(temp_dir)) 
+    end
     log.info("FINISHED TEST SUITE")
 end
 
@@ -90,24 +101,21 @@ function TestFileSystem:testCopyAndMove()
     local src = temp_dir / "file.txt"
     local dst = temp_dir / "file_copy.txt"
     
-    fs_ext.writefile(src:str(), "content")
+    fs_ext.writefile(tostring(src), "content")
     lu.assertTrue(src:exists(), "Source file creation failed")
     
-    -- Test Copy
-    local ok, err = fs.copy(src, dst)
+    local ok, err = fs.copy(tostring(src), tostring(dst))
     lu.assertTrue(ok, "fs.copy failed: " .. tostring(err))
     lu.assertTrue(dst:exists(), "Destination file not created")
     
-    -- Test Move
     local dst2 = temp_dir / "file_moved.txt"
-    local ok_mv, err_mv = fs.move(dst, dst2)
+    local ok_mv, err_mv = fs.move(tostring(dst), tostring(dst2))
     lu.assertTrue(ok_mv, "fs.move failed: " .. tostring(err_mv))
     
     lu.assertFalse(dst:exists(), "Original file still exists after move")
     lu.assertTrue(dst2:exists(), "Moved file not found")
     
-    -- Test Delete
-    local ok_del, err_del = fs.delete(dst2)
+    local ok_del, err_del = fs.delete(tostring(dst2))
     lu.assertTrue(ok_del, "fs.delete failed: " .. tostring(err_del))
     lu.assertFalse(dst2:exists(), "Deleted file still exists")
 end
@@ -119,15 +127,18 @@ TestPeApi = {}
 
 function TestPeApi:testInitialize()
     log.debug("TEST: TestPeApi:testInitialize")
+    
     local mock_user = temp_dir / "MockUser"
     
-    -- Using :str() to pass to FFI helpers
-    k32.SetEnvironmentVariableW(to_w("USERPROFILE"), to_w(mock_user:str()))
+    -- [FIX] Force Windows backslashes for USERPROFILE to ensure compatibility
+    local mock_user_win = tostring(mock_user):gsub("/", "\\")
+    
+    k32.SetEnvironmentVariableW(to_w("USERPROFILE"), to_w(mock_user_win))
     
     pe.initialize()
     
     local desktop_path = mock_user / "Desktop"
-    lu.assertTrue(desktop_path:isdir(), "PE Initialize failed to create Desktop folder")
+    lu.assertTrue(desktop_path:isdir(), "PE Initialize failed to create Desktop folder: " .. tostring(desktop_path))
     
     k32.SetEnvironmentVariableW(to_w("USERPROFILE"), nil)
 end
@@ -147,7 +158,7 @@ function TestProcessApi:testExecAndTerminate()
     lu.assertNotIsNil(proc.pid, "Process object missing PID")
     
     local h = proc:handle()
-    lu.assertNotIsNil(h, "Invalid handle")
+    lu.assertNotIsNil(h, "Invalid handle from proc:handle()")
     
     async.sleep_blocking(1000)
     
@@ -168,8 +179,10 @@ TestShellGuardian = {}
 
 local function cleanup_guardian()
     process.kill_all_by_name("ping.exe")
+    
     local self_pid = k32.GetCurrentProcessId()
     local pids = process.find_all("peshell.exe")
+    
     for _, pid in ipairs(pids) do
         if pid ~= self_pid then 
             local p = process.find(tostring(pid))
@@ -221,7 +234,9 @@ function TestShellGuardian:testGuardianLifecycle()
     
     local shut_cmd = string.format('"%s" shutdown', self_path)
     local s_proc = process.exec_async({ command = shut_cmd })
-    if s_proc then process.wait_for_exit_pump(s_proc, 5000) end
+    if s_proc then 
+        process.wait_for_exit_pump(s_proc, 5000) 
+    end
     
     async.sleep_blocking(2000)
     

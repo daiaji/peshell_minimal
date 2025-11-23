@@ -1,6 +1,6 @@
 -- scripts/plugins/pe/init.lua
--- PE 环境初始化插件 (Enhanced Path Edition)
--- Version: 9.0
+-- PE 环境初始化插件 (Lua-Ext & FFI Edition)
+-- Version: 9.1 (Enhanced logging)
 
 local pesh = _G.pesh
 local M = {}
@@ -31,6 +31,7 @@ function M.initialize()
         log.error("USERPROFILE not set.")
         return false
     end
+    log.debug("PE: USERPROFILE is: ", user_profile)
     
     local directories = {
         "Desktop", "Favorites", "Documents", "Start Menu",
@@ -38,16 +39,15 @@ function M.initialize()
         "SendTo", "AppData/Roaming/Microsoft/Internet Explorer/Quick Launch"
     }
     
-    -- Root path object
-    local root = path(user_profile)
-    
     for _, subdir in ipairs(directories) do
-        local p = root / subdir
-        -- Use path:mkdir method
-        if not p:mkdir(true) then
+        local p = path(user_profile) / subdir
+        local p_str = tostring(p)
+        if not os_ext.mkdir(p_str, true) then
             if not p:isdir() then
-                log.warn("Could not create directory: ", p:str())
+                log.warn("Could not create directory: ", p_str)
             end
+        else
+            log.trace("PE: Created ", p_str)
         end
     end
     log.info("PE: User folders created.")
