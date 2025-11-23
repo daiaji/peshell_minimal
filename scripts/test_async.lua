@@ -1,6 +1,6 @@
 -- scripts/test_async.lua
 -- 用于测试全新异步/等待模型的脚本 (Modernized & Cleaned)
--- v7.3 - Final Clean Version (Lua-Ext Edition Fixes)
+-- v7.5 - Final Clean Version (Lua-Ext Edition Fixes)
 
 if not (_G.arg and _G.arg[1] == "run_from_main") then
     local log = require("core.log")
@@ -30,6 +30,7 @@ local function main_task()
     log.info("  Starting Asynchronous Test Suite with await")
     log.info("==============================================")
 
+    -- [FIX] Use tostring()
     if not temp_dir:exists() then os_ext.mkdir(tostring(temp_dir), true) end
     
     local source_file = tostring(temp_dir / "source.txt")

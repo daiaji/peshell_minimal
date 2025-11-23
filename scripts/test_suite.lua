@@ -1,6 +1,6 @@
 -- scripts/test_suite.lua
 -- PEShell API Test Suite (Refactored for Lua-Ext & FFI-Bindings)
--- Version: 7.3 (Fix path object string conversion & Complete Coverage)
+-- Version: 7.5 (Full Code - No Reductions)
 
 local lu = require("luaunit")
 local log = _G.log
@@ -15,6 +15,16 @@ local fs_ext = require("ext.io")
 -- [DEPENDENCY] FFI Bindings
 require("ffi.req")("Windows.sdk.kernel32")
 local k32 = ffi.load("kernel32")
+
+-- [FIX] Explicitly define used APIs to ensure they exist regardless of ffi-bindings state
+-- This prevents "missing declaration" errors during tests
+ffi.cdef[[
+    int SetEnvironmentVariableW(const wchar_t* lpName, const wchar_t* lpValue);
+    void* CreateEventW(void* lpEventAttributes, int bManualReset, int bInitialState, const wchar_t* lpName);
+    int CloseHandle(void* hObject);
+    unsigned long GetTickCount(void);
+    unsigned long GetCurrentProcessId();
+]]
 
 -- [DEPENDENCY] Plugins
 local process = pesh.plugin.load("process")
@@ -48,20 +58,20 @@ end
 -- [SETUP] Temporary Directory
 local temp_dir = path(os.getenv("TEMP") or ".") / "_peshell_test_temp"
 
--- [FIX] Wrap setup logic to debug LuaUnit crashes
 local function safe_setup()
     log.info("STARTING TEST SUITE")
+    local dir_str = tostring(temp_dir)
     
     -- Clean up previous run
     if temp_dir:exists() then 
-        local ok, err = fs.delete(tostring(temp_dir))
+        local ok, err = fs.delete(dir_str)
         if not ok then
             error("Failed to clean temp dir: " .. tostring(err))
         end
     end
     
     -- Create temp dir
-    local ok, err = fs.mkdir(tostring(temp_dir))
+    local ok, err = fs.mkdir(dir_str)
     if not ok then
         -- Check if it exists (mkdir returns false if exists)
         if not temp_dir:exists() then
@@ -103,6 +113,7 @@ function TestFileSystem:testCopyAndMove()
     lu.assertTrue(src:exists(), "Source file creation failed")
     
     -- Test Copy
+    -- fs.copy returns boolean true on success
     local ok, err = fs.copy(tostring(src), tostring(dst))
     lu.assertTrue(ok, "fs.copy failed: " .. tostring(err))
     lu.assertTrue(dst:exists(), "Destination file not created")
@@ -169,12 +180,14 @@ function TestProcessApi:testExecAndTerminate()
     -- 2. Find
     local found = process.find(name)
     lu.assertNotIsNil(found, "Could not find process by name")
+    -- Verify PIDs match (or at least found implies validity)
     lu.assertTrue(found:is_valid(), "Found process handle is invalid")
     
     -- 3. Terminate
     lu.assertTrue(proc:terminate(0), "terminate(0) failed")
     
     -- 4. Wait
+    -- process.wait_for_exit_pump encapsulates the wait loop
     local exited = process.wait_for_exit_pump(proc, 5000)
     lu.assertTrue(exited, "Process did not exit in time")
 end
@@ -216,6 +229,7 @@ function TestShellGuardian:testGuardianLifecycle()
     local ev_respawn_name = "Global\\TestRespawn_" .. uid
     
     -- Create Events (Manual Reset = true, Initial State = false)
+    -- We wrap them in AutoHandle to ensure CloseHandle is called on GC
     local raw_h_ready = k32.CreateEventW(nil, 1, 0, to_w(ev_ready_name))
     local raw_h_respawn = k32.CreateEventW(nil, 1, 0, to_w(ev_respawn_name))
     

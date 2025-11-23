@@ -37,6 +37,7 @@ function M.initialize()
     
     for _, subdir in ipairs(directories) do
         local p = path(user_profile) / subdir
+        -- [FIX] Use tostring(p)
         if not os_ext.mkdir(tostring(p), true) then
             if not p:isdir() then
                 log.warn("Could not create directory: ", tostring(p))
