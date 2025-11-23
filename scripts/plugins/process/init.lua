@@ -1,36 +1,23 @@
 -- scripts/plugins/process/init.lua
--- Process 插件 (Penlight CLI Integrated)
+-- Process 插件 (Lua-Ext & FFI-Bindings Edition)
 
 local pesh = _G.pesh
 local M = {}
 
 -- 1. 依赖
 local log = _G.log
-local ffi = pesh.ffi
-local native = _G.pesh_native
-local path = require("pl.path")
-local app = require("pl.app") -- 使用 Penlight 的参数解析
-local kernel32 = pesh.plugin.load("winapi.kernel32")
+local path = require("ext.path")
+local cli = require("ext.cli")
+local ffi = require("ffi")
 
--- 2. 加载纯 Lua FFI 库
+-- 2. 加载 proc_utils (纯 Lua FFI 版本)
 local status, proc = pcall(require, "proc_utils_ffi")
 if not status then 
-    error("CRITICAL: Failed to load 'proc_utils_ffi': " .. tostring(proc)) 
+    error("CRITICAL: Failed to load 'proc_utils_ffi'. Ensure it is in 'lib/'. Error: " .. tostring(proc)) 
 end
 
--- 3. 句柄定义
-ffi.define("process_plugin_non_owning_handle", [[
-    typedef struct { void* h; } NonOwningHandle_t;
-]])
-local non_owning_mt = {} 
-local NonOwningHandle = ffi.metatype("NonOwningHandle_t", non_owning_mt)
-
-function M.get_waitable_handle(process_obj)
-    if not process_obj then return nil end
-    local raw_h = process_obj:handle()
-    if not raw_h then return nil end
-    return NonOwningHandle(raw_h)
-end
+require("ffi.req")("Windows.sdk.kernel32")
+local k32 = ffi.load("kernel32")
 
 -- ============================================================
 -- 核心 API 实现
@@ -40,8 +27,9 @@ function M.exec_async(params)
     local command = params.command
     local workdir = params.working_dir
     local show_mode = params.show_mode or proc.constants.SW_SHOWNORMAL
+    local desktop = params.desktop
     
-    local p_obj, err_code, err_msg = proc.exec(command, workdir, show_mode)
+    local p_obj, err_code, err_msg = proc.exec(command, workdir, show_mode, desktop)
     
     if not p_obj then
         local final_msg = string.format("Failed to execute '%s'. Error: %s (Code: %s)", 
@@ -57,6 +45,7 @@ end
 function M.find(name_or_pid)
     local pid = proc.exists(name_or_pid)
     if pid == 0 then return nil end
+    
     local p_obj, err, msg = proc.open_by_pid(pid)
     if not p_obj then
         log.warn("Process exists (PID:", pid, ") but could not open handle: ", msg)
@@ -66,7 +55,7 @@ function M.find(name_or_pid)
 end
 
 function M.find_all(name)
-    return proc.find_all(name) or {}
+    return proc.find_all(name)
 end
 
 function M.kill_all_by_name(process_name)
@@ -86,31 +75,29 @@ function M.kill_all_by_name(process_name)
     return all_ok
 end
 
--- 异步等待 (配合 await 使用)
+-- 异步等待 (配合 await)
 M.wait_for_exit = function(co, process_obj)
     if not process_obj then error("wait_for_exit called with nil process object") end
-    local waitable = M.get_waitable_handle(process_obj)
-    if not waitable then
-        coroutine.resume(co, true)
-        return
-    end
-    native.wait_for_multiple_objects(co, { waitable })
+    local h = process_obj:handle()
+    local wait_struct = ffi.new("struct { void* h; }", { h = h })
+    _G.pesh_native.wait_for_multiple_objects(co, { wait_struct })
 end
 
--- 同步等待 (带消息泵，防止卡死 UI/消息循环)
+-- 同步等待 (带消息泵)
 function M.wait_for_exit_pump(process_obj, timeout_ms)
     if not process_obj or not process_obj.wait_for_exit then 
-        log.error("wait_for_exit_pump: Invalid process object.")
         return false 
     end
     timeout_ms = timeout_ms or -1
-    local start_tick = kernel32.GetTickCount()
+    local start_tick = k32.GetTickCount()
+    
     while true do
         if process_obj:wait_for_exit(0) then return true end
+        
         if timeout_ms >= 0 then
-            if (kernel32.GetTickCount() - start_tick) > timeout_ms then return false end
+            if (k32.GetTickCount() - start_tick) > timeout_ms then return false end
         end
-        native.sleep(50)
+        _G.pesh_native.sleep(50)
     end
 end
 
@@ -119,20 +106,17 @@ end
 -- ============================================================
 
 function M.get_self_path()
-    local buf = ffi.new("wchar_t[?]", 260)
-    if kernel32.GetModuleFileNameW(nil, buf, 260) > 0 then return ffi.from_wide(buf) end
-    return nil
+    return proc.current():get_path()
 end
 
 function M.get_process_name_from_command(full_command)
-    local shell32_plugin = pesh.plugin.load("winapi.shell32")
-    local parts = shell32_plugin.commandline_to_argv(full_command)
-    if not parts or #parts == 0 then return nil end
-    return path.basename(parts[1])
-end
-
-function M.get_current_pid()
-    return kernel32.GetCurrentProcessId()
+    if not full_command then return nil end
+    local shell = require("ffi.req")("Windows.sdk.shell32")
+    local argv = shell.commandline_to_argv(full_command)
+    if argv and argv[1] then
+        return path(argv[1]):basename()
+    end
+    return nil
 end
 
 -- ============================================================
@@ -140,27 +124,30 @@ end
 -- ============================================================
 M.__commands = {
     exec = function(args)
-        -- 使用 Penlight 强大的参数解析
-        -- parse_args 返回两个表：flags (选项) 和 params (位置参数)
-        local flags, params = app.parse_args(args.cmd, {
-            wait = true, w = true,  -- -w 或 --wait
-            hide = true, h = true   -- -h 或 --hide
+        local flags, rest_args = cli.parse(args.cmd, {
+            wait = { type = "boolean", alias = "w" },
+            hide = { type = "boolean", alias = "h" },
+            desktop = { type = "string", alias = "d" },
+            workdir = { type = "string" }
         })
         
-        -- 获取剩余的位置参数作为命令
-        if #params == 0 then 
+        if #rest_args == 0 then 
             log.error("exec: Missing command.")
             return 1
         end
         
-        local cmd_line = table.concat(params, " ")
+        local cmd_line = table.concat(rest_args, " ")
+        local show_val = flags.hide and proc.constants.SW_HIDE or proc.constants.SW_SHOWNORMAL
         
-        local show_val = (flags.hide or flags.h) and proc.constants.SW_HIDE or proc.constants.SW_SHOWNORMAL
-        local wait_val = (flags.wait or flags.w)
+        local p_obj = M.exec_async({ 
+            command = cmd_line, 
+            show_mode = show_val,
+            desktop = flags.desktop,
+            working_dir = flags.workdir
+        })
         
-        local p_obj = M.exec_async({ command = cmd_line, show_mode = show_val })
         if p_obj then
-            if wait_val then M.wait_for_exit_pump(p_obj, -1) end
+            if flags.wait then M.wait_for_exit_pump(p_obj, -1) end
             return 0
         end
         return 1

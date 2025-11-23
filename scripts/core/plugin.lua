@@ -6,7 +6,7 @@ local loaded_plugins = {} -- 缓存已加载的插件模块
 
 ---
 -- 加载一个插件。
--- @param plugin_name string: 插件名称 (例如 'process', 'winapi.user32')
+-- @param plugin_name string: 插件名称
 -- @return table: 插件返回的模块表
 function M.load(plugin_name)
     if loaded_plugins[plugin_name] then
