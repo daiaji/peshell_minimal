@@ -50,7 +50,7 @@ jobs:
           copy luajit.exe "%LUAJIT_BIN_DIR%\bin\"
           copy lua51.lib "%LUAJIT_BIN_DIR%\lib\"
           
-          rem [修复] 显式复制所有标准头文件，防止遗漏 lauxlib.h
+          rem 显式复制所有头文件
           copy lua.h "%LUAJIT_BIN_DIR%\include\"
           copy lualib.h "%LUAJIT_BIN_DIR%\include\"
           copy lauxlib.h "%LUAJIT_BIN_DIR%\include\"
@@ -86,6 +86,8 @@ jobs:
           Copy-Item "vendor/lua-ffi-bindings" "$lib/ffi" -Recurse -Exclude .git,vendor
           Copy-Item "vendor/proc_utils/proc_utils_ffi.lua" $lib
           Copy-Item "vendor/lfs/lfs_ffi.lua" $lib
+          # [修复] 复制 luaunit 到 lib
+          Copy-Item "vendor/luaunit/luaunit.lua" $lib
 
           # D. VC++ Runtime
           $vctools = $env:VCToolsRedistDir
