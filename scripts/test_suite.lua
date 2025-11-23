@@ -1,6 +1,6 @@
 -- scripts/test_suite.lua
 -- PEShell API Test Suite (Refactored for Lua-Ext & FFI-Bindings)
--- Version: 7.0
+-- Version: 7.1 (Fix LuaUnit Setup Crash & Full Lua-Ext Integration)
 
 local lu = require("luaunit")
 local log = _G.log
@@ -20,7 +20,7 @@ local k32 = ffi.load("kernel32")
 local process = pesh.plugin.load("process")
 local pe = pesh.plugin.load("pe")
 local fs = pesh.plugin.load("fs")
-local async = pesh.plugin.load("async") -- 用于 sleep_blocking
+local async = pesh.plugin.load("async")
 
 -- [HELPER] Unicode Conversion
 local function to_w(str)
@@ -48,13 +48,36 @@ end
 -- [SETUP] Temporary Directory
 local temp_dir = path(os.getenv("TEMP") or ".") / "_peshell_test_temp"
 
-function setupSuite()
+-- [FIX] Wrap setup logic to debug LuaUnit crashes
+local function safe_setup()
     log.info("STARTING TEST SUITE")
-    -- 递归清理 (依赖 fs 插件的 delete 能够处理目录)
+    
+    -- Clean up previous run
     if temp_dir:exists() then 
-        fs.delete(temp_dir:str()) 
+        local ok, err = fs.delete(temp_dir:str())
+        if not ok then
+            error("Failed to clean temp dir: " .. tostring(err))
+        end
     end
-    fs.mkdir(temp_dir:str())
+    
+    -- Create temp dir
+    local ok, err = fs.mkdir(temp_dir:str())
+    if not ok then
+        -- Check if it exists (mkdir returns false if exists)
+        if not temp_dir:exists() then
+            error("Failed to create temp dir: " .. tostring(err))
+        end
+    end
+end
+
+function setupSuite()
+    -- Use xpcall to catch errors, preventing LuaUnit internal state corruption
+    local status, err = xpcall(safe_setup, debug.traceback)
+    if not status then
+        log.critical("CRITICAL ERROR IN SETUP SUITE:\n", err)
+        -- Manually throw to stop execution, logging has already happened
+        error(err)
+    end
 end
 
 function teardownSuite()
@@ -80,19 +103,21 @@ function TestFileSystem:testCopyAndMove()
     lu.assertTrue(src:exists(), "Source file creation failed")
     
     -- Test Copy
-    -- fs.copy returns boolean true on success
-    lu.assertTrue(fs.copy(src:str(), dst:str()), "fs.copy failed")
+    local ok, err = fs.copy(src:str(), dst:str())
+    lu.assertTrue(ok, "fs.copy failed: " .. tostring(err))
     lu.assertTrue(dst:exists(), "Destination file not created")
     
     -- Test Move
     local dst2 = temp_dir / "file_moved.txt"
-    lu.assertTrue(fs.move(dst:str(), dst2:str()), "fs.move failed")
+    local ok_mv, err_mv = fs.move(dst:str(), dst2:str())
+    lu.assertTrue(ok_mv, "fs.move failed: " .. tostring(err_mv))
     
     lu.assertFalse(dst:exists(), "Original file still exists after move")
     lu.assertTrue(dst2:exists(), "Moved file not found")
     
     -- Test Delete
-    lu.assertTrue(fs.delete(dst2:str()), "fs.delete failed")
+    local ok_del, err_del = fs.delete(dst2:str())
+    lu.assertTrue(ok_del, "fs.delete failed: " .. tostring(err_del))
     lu.assertFalse(dst2:exists(), "Deleted file still exists")
 end
 
@@ -127,7 +152,7 @@ TestProcessApi = {}
 
 function TestProcessApi:testExecAndTerminate()
     log.debug("TEST: TestProcessApi:testExecAndTerminate")
-    local cmd = "ping.exe -n 100 127.0.0.1" -- 使用 -n 保证持续运行
+    local cmd = "ping.exe -n 100 127.0.0.1"
     local name = "ping.exe"
     
     -- 1. Exec
@@ -144,14 +169,12 @@ function TestProcessApi:testExecAndTerminate()
     -- 2. Find
     local found = process.find(name)
     lu.assertNotIsNil(found, "Could not find process by name")
-    -- Verify PIDs match (or at least found implies validity)
     lu.assertTrue(found:is_valid(), "Found process handle is invalid")
     
     -- 3. Terminate
     lu.assertTrue(proc:terminate(0), "terminate(0) failed")
     
     -- 4. Wait
-    -- process.wait_for_exit_pump encapsulates the wait loop
     local exited = process.wait_for_exit_pump(proc, 5000)
     lu.assertTrue(exited, "Process did not exit in time")
 end
@@ -183,7 +206,7 @@ function TestShellGuardian:testGuardianLifecycle()
     log.debug("TEST: TestShellGuardian:testGuardianLifecycle")
     
     local self_path = process.get_self_path()
-    -- ping -t equivalents to infinite loop
+    -- ping -n 9999 simulates a long-running shell process
     local target_cmd = "ping.exe -n 9999 127.0.0.1" 
     local target_name = "ping.exe"
 
@@ -193,7 +216,6 @@ function TestShellGuardian:testGuardianLifecycle()
     local ev_respawn_name = "Global\\TestRespawn_" .. uid
     
     -- Create Events (Manual Reset = true, Initial State = false)
-    -- We wrap them in AutoHandle to ensure CloseHandle is called on GC
     local raw_h_ready = k32.CreateEventW(nil, 1, 0, to_w(ev_ready_name))
     local raw_h_respawn = k32.CreateEventW(nil, 1, 0, to_w(ev_respawn_name))
     

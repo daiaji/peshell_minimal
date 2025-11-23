@@ -30,8 +30,11 @@ end
 function M.list_files(p)
     local res = {}
     local parent = path(p)
-    for f in os_ext.listdir(p) do
-        -- [FIX] 使用 /
+    -- 增加容错
+    local iter, obj = os_ext.listdir(p)
+    if not iter then return res end
+    
+    for f in iter, obj do
         if (parent / f):isfile() then
             table.insert(res, f)
         end
@@ -42,8 +45,10 @@ end
 function M.list_dirs(p)
     local res = {}
     local parent = path(p)
-    for f in os_ext.listdir(p) do
-        -- [FIX] 使用 /
+    local iter, obj = os_ext.listdir(p)
+    if not iter then return res end
+
+    for f in iter, obj do
         if (parent / f):isdir() then
             table.insert(res, f)
         end
@@ -79,7 +84,6 @@ function M.copy(src, dst)
     
     if src_p:isfile() then
         if dst_p:isdir() then
-            -- [FIX] 使用 /
             dst_p = dst_p / src_p:name()
         end
         return copy_file_internal(src_p:str(), dst_p:str(), false)
@@ -87,9 +91,12 @@ function M.copy(src, dst)
     elseif src_p:isdir() then
         if not dst_p:exists() then M.mkdir(dst_p:str()) end
         
-        for name in lfs.dir(src_p:str()) do
+        -- 使用 lfs.dir 直接迭代，因为我们需要 full recursion
+        local iter, obj = lfs.dir(src_p:str())
+        if not iter then return false, "Failed to list source directory" end
+
+        for name in iter, obj do
             if name ~= "." and name ~= ".." then
-                -- [FIX] 使用 /
                 local s = (src_p / name):str()
                 local d = (dst_p / name):str()
                 local ok, err = M.copy(s, d)
@@ -108,15 +115,20 @@ end
 
 function M.delete(target)
     local p = path(target)
+    if not p:exists() then return true end -- Idempotent
+
     if p:isdir() then
-        for name in lfs.dir(p:str()) do
-            if name ~= "." and name ~= ".." then
-                -- [FIX] 使用 /
-                local child = (p / name):str()
-                local ok, err = M.delete(child)
-                if not ok then return false, err end
+        local iter, obj = lfs.dir(p:str())
+        if iter then
+            for name in iter, obj do
+                if name ~= "." and name ~= ".." then
+                    local child = (p / name):str()
+                    local ok, err = M.delete(child)
+                    if not ok then return false, err end
+                end
             end
         end
+        -- 目录清空后删除目录本身
         return os_ext.rmdir(p:str())
     else
         return os_ext.remove(p:str())
