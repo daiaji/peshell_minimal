@@ -1,6 +1,6 @@
 -- scripts/test_async.lua
 -- 用于测试全新异步/等待模型的脚本 (Modernized & Cleaned)
--- v7.0 - Final Clean Version (Lua-Ext Edition)
+-- v7.3 - Final Clean Version (Lua-Ext Edition Fixes)
 
 if not (_G.arg and _G.arg[1] == "run_from_main") then
     local log = require("core.log")
@@ -19,29 +19,23 @@ local async = pesh.plugin.load("async")
 local fs_async = pesh.plugin.load("fs_async")
 local process = pesh.plugin.load("process")
 
--- [CHANGE] Lua-Ext replacements
 local path = require("ext.path")
-local fs_ext = require("ext.io") -- for readfile/writefile
-local os_ext = require("ext.os") -- for mkdir
+local fs_ext = require("ext.io")
+local os_ext = require("ext.os")
 
--- [CHANGE] Path construction with / operator
 local temp_dir = path(os.getenv("TEMP") or ".") / "_peshell_async_test"
 
--- 主异步测试任务
 local function main_task()
     log.info("==============================================")
     log.info("  Starting Asynchronous Test Suite with await")
     log.info("==============================================")
 
-    -- [CHANGE] mkdir (ext.os style)
-    if not temp_dir:exists() then os_ext.mkdir(temp_dir:str(), true) end
+    if not temp_dir:exists() then os_ext.mkdir(tostring(temp_dir), true) end
     
-    -- [CHANGE] Convert paths to strings for C++ workers / FFI
-    local source_file = (temp_dir / "source.txt"):str()
-    local dest_file = (temp_dir / "dest.txt"):str()
+    local source_file = tostring(temp_dir / "source.txt")
+    local dest_file = tostring(temp_dir / "dest.txt")
     
     local test_content = "Async content!"
-    -- [CHANGE] writefile
     fs_ext.writefile(source_file, test_content)
 
     log.info("\n[1/4] Testing await on async file copy...")
@@ -49,9 +43,7 @@ local function main_task()
     lu.assertTrue(status, "await(copy) should not throw an error. Got: " .. tostring(msg))
     log.info("  -> SUCCESS: Async copy completed.")
     
-    -- [API 更新] 使用真正的异步睡眠
     await(async.sleep, 50)
-    -- [CHANGE] readfile
     lu.assertEquals(fs_ext.readfile(dest_file), test_content, "Copied content must match.")
 
     log.info("\n[2/4] Testing await on async file read...")
@@ -64,13 +56,11 @@ local function main_task()
     local proc = process.exec_async({ command = "notepad.exe" })
     lu.assertNotIsNil(proc, "Failed to start notepad.exe")
     
-    -- [API 更新] 使用真正的异步睡眠等待进程稳定
     await(async.sleep, 1500)
     
     proc:terminate(0)
     log.info("  -> Notepad killed. Now awaiting process exit...")
     
-    -- 测试 wait_for_exit
     status, msg = pcall(await, process.wait_for_exit, proc)
     lu.assertTrue(status, "await(process.wait_for_exit) should succeed. Got: " .. tostring(msg))
     log.info("  -> SUCCESS: Awaited process exit.")
@@ -79,7 +69,6 @@ local function main_task()
     log.info("  -> Starting a long-running async copy in the background...")
     async.run(function() 
         local status_bg, msg_bg = pcall(function()
-            -- [CHANGE] String concatenation for suffix is standard Lua
             await(fs_async.copy_file_async, source_file, dest_file .. ".concurrent")
         end)
         if status_bg then
@@ -90,7 +79,6 @@ local function main_task()
     end)
     log.info("  -> Immediately after starting copy, this message prints.")
     
-    -- [API 更新] 使用真正的异步睡眠
     await(async.sleep, 50)
     log.info("  -> This proves the main flow was not blocked.")
     
@@ -99,11 +87,9 @@ local function main_task()
     log.info("==============================================")
 end
 
--- 运行测试并决定退出码
 pesh.plugin.load("async").run(function()
     local success, err = pcall(main_task)
     
-    -- [CHANGE] Load user32 for PostQuitMessage (winapi plugin is removed)
     local u32 = ffi.load("user32")
     
     if not success then

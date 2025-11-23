@@ -24,14 +24,13 @@ function M.get_size(p) return path(p):attr().size end
 function M.get_mtime(p) return path(p):attr().modification end
 
 function M.mkdir(p)
-    return os_ext.mkdir(p, true)
+    return os_ext.mkdir(tostring(p), true)
 end
 
 function M.list_files(p)
     local res = {}
     local parent = path(p)
-    -- 增加容错
-    local iter, obj = os_ext.listdir(p)
+    local iter, obj = os_ext.listdir(tostring(p))
     if not iter then return res end
     
     for f in iter, obj do
@@ -45,7 +44,7 @@ end
 function M.list_dirs(p)
     local res = {}
     local parent = path(p)
-    local iter, obj = os_ext.listdir(p)
+    local iter, obj = os_ext.listdir(tostring(p))
     if not iter then return res end
 
     for f in iter, obj do
@@ -86,20 +85,19 @@ function M.copy(src, dst)
         if dst_p:isdir() then
             dst_p = dst_p / src_p:name()
         end
-        return copy_file_internal(src_p:str(), dst_p:str(), false)
+        return copy_file_internal(tostring(src_p), tostring(dst_p), false)
     
     elseif src_p:isdir() then
-        if not dst_p:exists() then M.mkdir(dst_p:str()) end
+        if not dst_p:exists() then M.mkdir(tostring(dst_p)) end
         
-        -- 使用 lfs.dir 直接迭代，因为我们需要 full recursion
-        local iter, obj = lfs.dir(src_p:str())
+        local iter, obj = lfs.dir(tostring(src_p))
         if not iter then return false, "Failed to list source directory" end
 
         for name in iter, obj do
             if name ~= "." and name ~= ".." then
-                local s = (src_p / name):str()
-                local d = (dst_p / name):str()
-                local ok, err = M.copy(s, d)
+                local s = (src_p / name)
+                local d = (dst_p / name)
+                local ok, err = M.copy(tostring(s), tostring(d))
                 if not ok then return false, err end
             end
         end
@@ -110,28 +108,27 @@ function M.copy(src, dst)
 end
 
 function M.move(src, dst)
-    return os_ext.move(src, dst)
+    return os_ext.move(tostring(src), tostring(dst))
 end
 
 function M.delete(target)
     local p = path(target)
-    if not p:exists() then return true end -- Idempotent
+    if not p:exists() then return true end
 
     if p:isdir() then
-        local iter, obj = lfs.dir(p:str())
+        local iter, obj = lfs.dir(tostring(p))
         if iter then
             for name in iter, obj do
                 if name ~= "." and name ~= ".." then
-                    local child = (p / name):str()
-                    local ok, err = M.delete(child)
+                    local child = (p / name)
+                    local ok, err = M.delete(tostring(child))
                     if not ok then return false, err end
                 end
             end
         end
-        -- 目录清空后删除目录本身
-        return os_ext.rmdir(p:str())
+        return os_ext.rmdir(tostring(p))
     else
-        return os_ext.remove(p:str())
+        return os_ext.remove(tostring(p))
     end
 end
 

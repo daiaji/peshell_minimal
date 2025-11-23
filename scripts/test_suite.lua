@@ -1,6 +1,6 @@
 -- scripts/test_suite.lua
 -- PEShell API Test Suite (Refactored for Lua-Ext & FFI-Bindings)
--- Version: 7.1 (Fix LuaUnit Setup Crash & Full Lua-Ext Integration)
+-- Version: 7.3 (Fix path object string conversion & Complete Coverage)
 
 local lu = require("luaunit")
 local log = _G.log
@@ -54,14 +54,14 @@ local function safe_setup()
     
     -- Clean up previous run
     if temp_dir:exists() then 
-        local ok, err = fs.delete(temp_dir:str())
+        local ok, err = fs.delete(tostring(temp_dir))
         if not ok then
             error("Failed to clean temp dir: " .. tostring(err))
         end
     end
     
     -- Create temp dir
-    local ok, err = fs.mkdir(temp_dir:str())
+    local ok, err = fs.mkdir(tostring(temp_dir))
     if not ok then
         -- Check if it exists (mkdir returns false if exists)
         if not temp_dir:exists() then
@@ -82,7 +82,7 @@ end
 
 function teardownSuite()
     if temp_dir:exists() then 
-        fs.delete(temp_dir:str()) 
+        fs.delete(tostring(temp_dir)) 
     end
     log.info("FINISHED TEST SUITE")
 end
@@ -99,24 +99,24 @@ function TestFileSystem:testCopyAndMove()
     local dst = temp_dir / "file_copy.txt"
     
     -- Create source file
-    fs_ext.writefile(src:str(), "content")
+    fs_ext.writefile(tostring(src), "content")
     lu.assertTrue(src:exists(), "Source file creation failed")
     
     -- Test Copy
-    local ok, err = fs.copy(src:str(), dst:str())
+    local ok, err = fs.copy(tostring(src), tostring(dst))
     lu.assertTrue(ok, "fs.copy failed: " .. tostring(err))
     lu.assertTrue(dst:exists(), "Destination file not created")
     
     -- Test Move
     local dst2 = temp_dir / "file_moved.txt"
-    local ok_mv, err_mv = fs.move(dst:str(), dst2:str())
+    local ok_mv, err_mv = fs.move(tostring(dst), tostring(dst2))
     lu.assertTrue(ok_mv, "fs.move failed: " .. tostring(err_mv))
     
     lu.assertFalse(dst:exists(), "Original file still exists after move")
     lu.assertTrue(dst2:exists(), "Moved file not found")
     
     -- Test Delete
-    local ok_del, err_del = fs.delete(dst2:str())
+    local ok_del, err_del = fs.delete(tostring(dst2))
     lu.assertTrue(ok_del, "fs.delete failed: " .. tostring(err_del))
     lu.assertFalse(dst2:exists(), "Deleted file still exists")
 end
@@ -132,7 +132,7 @@ function TestPeApi:testInitialize()
     local mock_user = temp_dir / "MockUser"
     
     -- Set Mock Environment Variable
-    k32.SetEnvironmentVariableW(to_w("USERPROFILE"), to_w(mock_user:str()))
+    k32.SetEnvironmentVariableW(to_w("USERPROFILE"), to_w(tostring(mock_user)))
     
     -- Run Initialization
     pe.initialize()
