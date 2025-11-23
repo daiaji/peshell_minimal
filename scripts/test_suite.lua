@@ -1,37 +1,34 @@
 -- scripts/test_suite.lua
 -- PEShell API Test Suite (Refactored for Lua-Ext & FFI-Bindings)
--- Version: 9.1 (Fix USERPROFILE path separators)
+-- Version: 9.2 (Fix Native Handle passing and Env Vars)
 
 local lu = require("luaunit")
 local log = _G.log
 local pesh = _G.pesh
 local ffi = require("ffi")
 
--- [DEPENDENCY] Lua-Ext
 local path = require("ext.path")
 local os_ext = require("ext.os")
 local fs_ext = require("ext.io")
 
--- [DEPENDENCY] FFI Bindings
 require("ffi.req")("Windows.sdk.kernel32")
 local k32 = ffi.load("kernel32")
 
--- [FIX] Explicitly define used APIs
 ffi.cdef[[
     int SetEnvironmentVariableW(const wchar_t* lpName, const wchar_t* lpValue);
     void* CreateEventW(void* lpEventAttributes, int bManualReset, int bInitialState, const wchar_t* lpName);
     int CloseHandle(void* hObject);
     unsigned long GetTickCount(void);
     unsigned long GetCurrentProcessId();
+    
+    typedef struct { void* h; } SafeHandle_t;
 ]]
 
--- [DEPENDENCY] Plugins
 local process = pesh.plugin.load("process")
 local pe = pesh.plugin.load("pe")
 local fs = pesh.plugin.load("fs")
 local async = pesh.plugin.load("async")
 
--- [HELPER] Unicode Conversion
 local function to_w(str)
     if not str then return nil end
     local CP_UTF8 = 65001
@@ -41,37 +38,33 @@ local function to_w(str)
     return buf
 end
 
+-- [FIX] Use ffi.metatype to create cdata that C++ can recognize via LUA_TCDATA
 local safe_handle_mt = {
     __gc = function(t)
-        if t.h and t.h ~= nil and t.h ~= ffi.cast("void*", -1) then
+        if t.h ~= nil and t.h ~= ffi.cast("void*", -1) then
             ffi.C.CloseHandle(t.h)
             t.h = nil
         end
     end
 }
+local SafeHandle = ffi.metatype("SafeHandle_t", safe_handle_mt)
+
 local function AutoHandle(raw_h)
-    return setmetatable({ h = raw_h }, safe_handle_mt)
+    return SafeHandle(raw_h)
 end
 
--- [SETUP] Temporary Directory
 local temp_dir = path(os.getenv("TEMP") or ".") / "_peshell_test_temp"
 
 local function safe_setup()
     log.info("STARTING TEST SUITE")
-    local dir_str = tostring(temp_dir)
-    
     if temp_dir:exists() then 
-        local ok, err = fs.delete(dir_str)
-        if not ok then
-            error("Failed to clean temp dir: " .. tostring(err))
-        end
+        local ok, err = fs.delete(temp_dir)
+        if not ok then error("Failed to clean temp dir: " .. tostring(err)) end
     end
     
-    local ok, err = fs.mkdir(dir_str)
-    if not ok then
-        if not temp_dir:exists() then
-            error("Failed to create temp dir: " .. tostring(err))
-        end
+    local ok, err = temp_dir:mkdir(true)
+    if not ok and not temp_dir:exists() then
+        error("Failed to create temp dir: " .. tostring(err))
     end
 end
 
@@ -84,9 +77,7 @@ function setupSuite()
 end
 
 function teardownSuite()
-    if temp_dir:exists() then 
-        fs.delete(tostring(temp_dir)) 
-    end
+    if temp_dir:exists() then fs.delete(temp_dir) end
     log.info("FINISHED TEST SUITE")
 end
 
@@ -101,21 +92,21 @@ function TestFileSystem:testCopyAndMove()
     local src = temp_dir / "file.txt"
     local dst = temp_dir / "file_copy.txt"
     
-    fs_ext.writefile(tostring(src), "content")
+    fs_ext.writefile(src:str(), "content")
     lu.assertTrue(src:exists(), "Source file creation failed")
     
-    local ok, err = fs.copy(tostring(src), tostring(dst))
+    local ok, err = fs.copy(src, dst)
     lu.assertTrue(ok, "fs.copy failed: " .. tostring(err))
     lu.assertTrue(dst:exists(), "Destination file not created")
     
     local dst2 = temp_dir / "file_moved.txt"
-    local ok_mv, err_mv = fs.move(tostring(dst), tostring(dst2))
+    local ok_mv, err_mv = fs.move(dst, dst2)
     lu.assertTrue(ok_mv, "fs.move failed: " .. tostring(err_mv))
     
     lu.assertFalse(dst:exists(), "Original file still exists after move")
     lu.assertTrue(dst2:exists(), "Moved file not found")
     
-    local ok_del, err_del = fs.delete(tostring(dst2))
+    local ok_del, err_del = fs.delete(dst2)
     lu.assertTrue(ok_del, "fs.delete failed: " .. tostring(err_del))
     lu.assertFalse(dst2:exists(), "Deleted file still exists")
 end
@@ -130,17 +121,15 @@ function TestPeApi:testInitialize()
     
     local mock_user = temp_dir / "MockUser"
     
-    -- [FIX] Force Windows backslashes for USERPROFILE to ensure compatibility
-    local mock_user_win = tostring(mock_user):gsub("/", "\\")
-    
-    k32.SetEnvironmentVariableW(to_w("USERPROFILE"), to_w(mock_user_win))
+    -- [FIX] Use ext.os.setenv to ensure os.getenv sees the change
+    os_ext.setenv("USERPROFILE", mock_user:str())
     
     pe.initialize()
     
     local desktop_path = mock_user / "Desktop"
-    lu.assertTrue(desktop_path:isdir(), "PE Initialize failed to create Desktop folder: " .. tostring(desktop_path))
+    lu.assertTrue(desktop_path:isdir(), "PE Initialize failed to create Desktop folder")
     
-    k32.SetEnvironmentVariableW(to_w("USERPROFILE"), nil)
+    os_ext.setenv("USERPROFILE", nil)
 end
 
 -- =============================================================================
@@ -158,7 +147,7 @@ function TestProcessApi:testExecAndTerminate()
     lu.assertNotIsNil(proc.pid, "Process object missing PID")
     
     local h = proc:handle()
-    lu.assertNotIsNil(h, "Invalid handle from proc:handle()")
+    lu.assertNotIsNil(h, "Invalid handle")
     
     async.sleep_blocking(1000)
     
@@ -179,10 +168,8 @@ TestShellGuardian = {}
 
 local function cleanup_guardian()
     process.kill_all_by_name("ping.exe")
-    
     local self_pid = k32.GetCurrentProcessId()
     local pids = process.find_all("peshell.exe")
-    
     for _, pid in ipairs(pids) do
         if pid ~= self_pid then 
             local p = process.find(tostring(pid))
@@ -208,6 +195,7 @@ function TestShellGuardian:testGuardianLifecycle()
     local raw_h_ready = k32.CreateEventW(nil, 1, 0, to_w(ev_ready_name))
     local raw_h_respawn = k32.CreateEventW(nil, 1, 0, to_w(ev_respawn_name))
     
+    -- h_ready is now a cdata (SafeHandle_t)
     local h_ready = AutoHandle(raw_h_ready)
     local h_respawn = AutoHandle(raw_h_respawn)
     
@@ -218,6 +206,7 @@ function TestShellGuardian:testGuardianLifecycle()
     local g_proc = process.exec_async({ command = guardian_args })
     lu.assertNotIsNil(g_proc, "Failed to launch guardian")
     
+    -- Now passing cdata table, C++ should accept it
     local idx = _G.pesh_native.wait_for_multiple_objects_blocking({ h_ready }, 15000)
     lu.assertEquals(idx, 1, "Timeout waiting for READY signal")
     
@@ -234,9 +223,7 @@ function TestShellGuardian:testGuardianLifecycle()
     
     local shut_cmd = string.format('"%s" shutdown', self_path)
     local s_proc = process.exec_async({ command = shut_cmd })
-    if s_proc then 
-        process.wait_for_exit_pump(s_proc, 5000) 
-    end
+    if s_proc then process.wait_for_exit_pump(s_proc, 5000) end
     
     async.sleep_blocking(2000)
     
