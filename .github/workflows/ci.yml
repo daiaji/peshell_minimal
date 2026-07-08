@@ -29,10 +29,10 @@ jobs:
 
       - name: Cache LuaJIT
         id: cache-luajit
-        uses: actions/cache@v3
+        uses: actions/cache@v4
         with:
           path: ${{ env.LUAJIT_BIN_DIR }}
-          key: ${{ runner.os }}-luajit-md-${{ hashFiles('vendor/luajit/.git') }}
+          key: ${{ runner.os }}-luajit-gc64-${{ hashFiles('vendor/luajit/.git') }}
 
       - name: Build LuaJIT (Dynamic CRT)
         if: steps.cache-luajit.outputs.cache-hit != 'true'
@@ -64,7 +64,13 @@ jobs:
           Set-MpPreference -DisableRealtimeMonitoring $true
           Set-MpPreference -DisableIOAVProtection $true
           Set-MpPreference -DisableArchiveScanning $true
-          Write-Host "Windows Defender real-time monitoring disabled."
+
+      - name: Cache CMake Build
+        id: cache-cmake
+        uses: actions/cache@v4
+        with:
+          path: build
+          key: cmake-${{ runner.os }}-${{ hashFiles('CMakeLists.txt', 'src/**/*.cpp', 'src/**/*.h', 'src/**/*.hpp') }}
 
       - name: Build PEShell
         run: |
@@ -75,14 +81,14 @@ jobs:
         shell: pwsh
         run: |
           $pkg = New-Item -ItemType Directory -Path "package" -Force
-          $bin = New-Item -ItemType Directory -Path "$pkg/bin"
-          $lua = New-Item -ItemType Directory -Path "$pkg/share/lua/5.1"
-          $lib = New-Item -ItemType Directory -Path "$lua/lib"
-          $jit = New-Item -ItemType Directory -Path "$lua/jit"
+          $bin = New-Item -ItemType Directory -Path "$pkg/bin" -Force
+          $lua = New-Item -ItemType Directory -Path "$pkg/share/lua/5.1" -Force
+          $lib = New-Item -ItemType Directory -Path "$lua/lib" -Force
+          $jit = New-Item -ItemType Directory -Path "$lua/jit" -Force
 
-          Copy-Item "build/bin/peshell.exe" $bin
-          Copy-Item "${{ env.LUAJIT_BIN_DIR }}\bin\lua51.dll" $bin
-          Copy-Item "start_peshell_main.bat" $pkg
+          Copy-Item "build/bin/peshell.exe" $bin -Force
+          Copy-Item "${{ env.LUAJIT_BIN_DIR }}\bin\lua51.dll" $bin -Force
+          if (Test-Path "start_peshell_main.bat") { Copy-Item "start_peshell_main.bat" $pkg }
 
           Copy-Item "scripts/core" "$lua/core" -Recurse -Force
           Copy-Item "scripts/plugins" "$lua/plugins" -Recurse -Force
@@ -93,9 +99,11 @@ jobs:
 
           Copy-Item "vendor/lua-ext" "$lib/ext" -Recurse -Exclude .git,vendor
           Copy-Item "vendor/lua-ffi-bindings" "$lib/ffi" -Recurse -Exclude .git,vendor
-          Copy-Item "vendor/proc_utils/proc_utils_ffi.lua" $lib
-          Copy-Item "vendor/lfs/lfs_ffi.lua" $lib
-          Copy-Item "vendor/luaunit/luaunit.lua" $lib
+
+          # Optional vendor libs (guard with Test-Path)
+          if (Test-Path "vendor/proc_utils/proc_utils_ffi.lua") { Copy-Item "vendor/proc_utils/proc_utils_ffi.lua" $lib }
+          if (Test-Path "vendor/lfs/lfs_ffi.lua") { Copy-Item "vendor/lfs/lfs_ffi.lua" $lib }
+          if (Test-Path "vendor/luaunit/luaunit.lua") { Copy-Item "vendor/luaunit/luaunit.lua" $lib }
 
           if (Test-Path "../win-kit") {
             Copy-Item "../win-kit" "$lua/win-kit" -Recurse -Exclude .git
