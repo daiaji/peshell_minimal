@@ -1,14 +1,15 @@
-name: CI Build and Package
+name: CI
 
 on:
   push:
-    branches: ["main", "master"]
+  pull_request:
   workflow_dispatch:
 
 jobs:
   build:
+    name: Windows build and package
     runs-on: windows-latest
-    
+
     env:
       LUAJIT_BIN_DIR: ${{ github.workspace }}\.lua
       LUAJIT_SRC_DIR: vendor/luajit/src
@@ -39,25 +40,22 @@ jobs:
         run: |
           cd %LUAJIT_SRC_DIR%
           call msvcbuild.bat gc64
-          
+
           mkdir "%LUAJIT_BIN_DIR%\bin"
           mkdir "%LUAJIT_BIN_DIR%\lib"
           mkdir "%LUAJIT_BIN_DIR%\include"
           mkdir "%LUAJIT_BIN_DIR%\jit"
-          
+
           copy lua51.dll "%LUAJIT_BIN_DIR%\bin\"
           copy luajit.exe "%LUAJIT_BIN_DIR%\bin\"
           copy lua51.lib "%LUAJIT_BIN_DIR%\lib\"
-          
-          rem 复制头文件
+
           copy lua.h "%LUAJIT_BIN_DIR%\include\"
           copy lualib.h "%LUAJIT_BIN_DIR%\include\"
           copy lauxlib.h "%LUAJIT_BIN_DIR%\include\"
           copy luaconf.h "%LUAJIT_BIN_DIR%\include\"
           copy luajit.h "%LUAJIT_BIN_DIR%\include\"
           copy lua.hpp "%LUAJIT_BIN_DIR%\include\"
-          
-          rem [新增] 复制 JIT 库文件 (vmdef.lua, bc.lua 等)
           copy jit\*.lua "%LUAJIT_BIN_DIR%\jit\"
 
       - name: Disable Windows Defender
@@ -66,7 +64,7 @@ jobs:
           Set-MpPreference -DisableRealtimeMonitoring $true
           Set-MpPreference -DisableIOAVProtection $true
           Set-MpPreference -DisableArchiveScanning $true
-          Write-Host "Windows Defender Real-time Monitoring disabled."
+          Write-Host "Windows Defender real-time monitoring disabled."
 
       - name: Build PEShell
         run: |
@@ -80,28 +78,28 @@ jobs:
           $bin = New-Item -ItemType Directory -Path "$pkg/bin"
           $lua = New-Item -ItemType Directory -Path "$pkg/share/lua/5.1"
           $lib = New-Item -ItemType Directory -Path "$lua/lib"
-          # [新增] JIT 库目录
           $jit = New-Item -ItemType Directory -Path "$lua/jit"
 
-          # A. 二进制
           Copy-Item "build/bin/peshell.exe" $bin
           Copy-Item "${{ env.LUAJIT_BIN_DIR }}\bin\lua51.dll" $bin
           Copy-Item "start_peshell_main.bat" $pkg
 
-          # B. 脚本
-          Copy-Item "scripts/core", "scripts/plugins", "scripts/*.lua" $lua -Recurse
-          
-          # C. JIT 库 (放在 share/lua/5.1/jit)
+          Copy-Item "scripts/core", "scripts/plugins", "scripts/lib", "scripts/profiles", "scripts/*.lua" $lua -Recurse
           Copy-Item "${{ env.LUAJIT_BIN_DIR }}\jit\*.lua" $jit
 
-          # D. 纯 Lua 依赖库
           Copy-Item "vendor/lua-ext" "$lib/ext" -Recurse -Exclude .git,vendor
           Copy-Item "vendor/lua-ffi-bindings" "$lib/ffi" -Recurse -Exclude .git,vendor
           Copy-Item "vendor/proc_utils/proc_utils_ffi.lua" $lib
           Copy-Item "vendor/lfs/lfs_ffi.lua" $lib
           Copy-Item "vendor/luaunit/luaunit.lua" $lib
 
-          # E. VC++ Runtime
+          if (Test-Path "../win-kit") {
+            Copy-Item "../win-kit" "$lua/win-kit" -Recurse -Exclude .git
+          }
+          if (Test-Path "../win-utils") {
+            Copy-Item "../win-utils" "$lua/win-utils" -Recurse -Exclude .git
+          }
+
           $vctools = $env:VCToolsRedistDir
           $crt = Join-Path $vctools "x64/Microsoft.VC14*.CRT"
           Write-Host "Copying CRT from $crt"
@@ -112,10 +110,31 @@ jobs:
       - name: Smoke Test
         working-directory: ${{ env.PACKAGE_PATH }}
         run: |
-          .\bin\peshell.exe run share\lua\5.1\test_suite.lua
+          .\bin\peshell.exe run share\lua\5.1\test_profile_runner.lua
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
           name: peshell-release
           path: ${{ env.PACKAGE_PATH }}
+
+  lua-smoke:
+    name: Lua smoke tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install LuaJIT
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y luajit
+
+      - name: Profile runner smoke
+        run: |
+          luajit scripts/test_profile_runner.lua
+
+      - name: Lua syntax smoke
+        run: |
+          luajit -e "assert(loadfile('scripts/prelude.lua')); assert(loadfile('scripts/init.lua')); assert(loadfile('scripts/lib/tasks/runner.lua')); assert(loadfile('scripts/profiles/default.lua'))"

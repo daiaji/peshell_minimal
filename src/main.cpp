@@ -5,6 +5,8 @@
 #include <windows.h>
 #include <shellapi.h>
 #include <timeapi.h>
+#include <d3d11.h>
+#include <dxgi.h>
 // clang-format on
 
 #include <ctpl_stl.h>
@@ -58,6 +60,290 @@ std::wstring Utf8ToWide(const std::string& str);
 namespace LuaBindings
 {
     struct SafeHandle { HANDLE h; };
+
+    struct UiWindow
+    {
+        HWND hwnd = NULL;
+    };
+
+    struct UiD3D11
+    {
+        IDXGISwapChain*        swap_chain = nullptr;
+        ID3D11Device*          device = nullptr;
+        ID3D11DeviceContext*   device_context = nullptr;
+        ID3D11RenderTargetView* render_target = nullptr;
+    };
+
+    static const wchar_t* kUiWindowClassName = L"PEShellMinimalUiWindow";
+
+    static LRESULT CALLBACK UiWindowProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
+    {
+        if (msg == WM_CLOSE) {
+            DestroyWindow(hwnd);
+            return 0;
+        }
+        if (msg == WM_DESTROY) {
+            PostQuitMessage(0);
+            return 0;
+        }
+        return DefWindowProcW(hwnd, msg, wparam, lparam);
+    }
+
+    static bool EnsureUiWindowClass()
+    {
+        HINSTANCE instance = GetModuleHandleW(NULL);
+        WNDCLASSEXW wc{};
+        wc.cbSize = sizeof(wc);
+        if (GetClassInfoExW(instance, kUiWindowClassName, &wc)) return true;
+
+        wc.style = CS_HREDRAW | CS_VREDRAW;
+        wc.lpfnWndProc = UiWindowProc;
+        wc.hInstance = instance;
+        wc.hCursor = LoadCursor(NULL, IDC_ARROW);
+        wc.lpszClassName = kUiWindowClassName;
+        return RegisterClassExW(&wc) != 0;
+    }
+
+    static std::string LastWin32Error(const char* prefix)
+    {
+        return std::string(prefix) + ": " + std::to_string(GetLastError());
+    }
+
+    static void PushNilError(lua_State* L, const std::string& message)
+    {
+        lua_pushnil(L);
+        lua_pushstring(L, message.c_str());
+    }
+
+    static UiWindow* CheckUiWindow(lua_State* L, int index)
+    {
+        if (!lua_istable(L, index)) luaL_argerror(L, index, "window table expected");
+        lua_getfield(L, index, "_native");
+        auto* window = static_cast<UiWindow*>(lua_touserdata(L, -1));
+        lua_pop(L, 1);
+        if (!window || !window->hwnd) luaL_argerror(L, index, "invalid window");
+        return window;
+    }
+
+    static UiD3D11* CheckUiD3D11(lua_State* L, int index)
+    {
+        if (!lua_istable(L, index)) luaL_argerror(L, index, "d3d11 table expected");
+        lua_getfield(L, index, "_native");
+        auto* d3d = static_cast<UiD3D11*>(lua_touserdata(L, -1));
+        lua_pop(L, 1);
+        if (!d3d) luaL_argerror(L, index, "invalid d3d11 context");
+        return d3d;
+    }
+
+    static bool CreateRenderTarget(UiD3D11* d3d, std::string& error)
+    {
+        ID3D11Texture2D* back_buffer = nullptr;
+        HRESULT hr = d3d->swap_chain->GetBuffer(0, IID_PPV_ARGS(&back_buffer));
+        if (FAILED(hr)) {
+            error = "IDXGISwapChain::GetBuffer failed: HRESULT " + std::to_string(hr);
+            return false;
+        }
+        hr = d3d->device->CreateRenderTargetView(back_buffer, nullptr, &d3d->render_target);
+        back_buffer->Release();
+        if (FAILED(hr)) {
+            error = "ID3D11Device::CreateRenderTargetView failed: HRESULT " + std::to_string(hr);
+            return false;
+        }
+        return true;
+    }
+
+    static void PushUiWindow(lua_State* L, UiWindow* window)
+    {
+        lua_newtable(L);
+        lua_pushlightuserdata(L, window);
+        lua_setfield(L, -2, "_native");
+        lua_pushlightuserdata(L, window->hwnd);
+        lua_setfield(L, -2, "hwnd");
+    }
+
+    static void PushUiD3D11(lua_State* L, UiD3D11* d3d)
+    {
+        lua_newtable(L);
+        lua_pushlightuserdata(L, d3d);
+        lua_setfield(L, -2, "_native");
+        lua_pushlightuserdata(L, d3d->device);
+        lua_setfield(L, -2, "device");
+        lua_pushlightuserdata(L, d3d->device_context);
+        lua_setfield(L, -2, "device_context");
+        lua_pushlightuserdata(L, d3d->swap_chain);
+        lua_setfield(L, -2, "swap_chain");
+    }
+
+    static int pesh_ui_create_window(lua_State* L)
+    {
+        const char* title = luaL_optstring(L, 1, "PEShell");
+        int width = (int)luaL_optinteger(L, 2, 960);
+        int height = (int)luaL_optinteger(L, 3, 640);
+        if (width <= 0 || height <= 0) {
+            PushNilError(L, "window width and height must be positive");
+            return 2;
+        }
+        if (!EnsureUiWindowClass()) {
+            PushNilError(L, LastWin32Error("RegisterClassExW failed"));
+            return 2;
+        }
+
+        RECT rect{0, 0, width, height};
+        AdjustWindowRect(&rect, WS_OVERLAPPEDWINDOW, FALSE);
+        HWND hwnd = CreateWindowExW(
+            0,
+            kUiWindowClassName,
+            Utf8ToWide(title).c_str(),
+            WS_OVERLAPPEDWINDOW,
+            CW_USEDEFAULT,
+            CW_USEDEFAULT,
+            rect.right - rect.left,
+            rect.bottom - rect.top,
+            NULL,
+            NULL,
+            GetModuleHandleW(NULL),
+            NULL);
+        if (!hwnd) {
+            PushNilError(L, LastWin32Error("CreateWindowExW failed"));
+            return 2;
+        }
+
+        ShowWindow(hwnd, SW_SHOWDEFAULT);
+        UpdateWindow(hwnd);
+
+        auto* window = new UiWindow();
+        window->hwnd = hwnd;
+        PushUiWindow(L, window);
+        return 1;
+    }
+
+    static int pesh_ui_destroy_window(lua_State* L)
+    {
+        UiWindow* window = CheckUiWindow(L, 1);
+        if (window->hwnd) {
+            DestroyWindow(window->hwnd);
+            window->hwnd = NULL;
+        }
+        delete window;
+        lua_pushnil(L);
+        lua_setfield(L, 1, "_native");
+        lua_pushnil(L);
+        lua_setfield(L, 1, "hwnd");
+        lua_pushboolean(L, 1);
+        return 1;
+    }
+
+    static int pesh_ui_create_d3d11(lua_State* L)
+    {
+        UiWindow* window = CheckUiWindow(L, 1);
+        RECT rect{};
+        if (!GetClientRect(window->hwnd, &rect)) {
+            PushNilError(L, LastWin32Error("GetClientRect failed"));
+            return 2;
+        }
+
+        DXGI_SWAP_CHAIN_DESC desc{};
+        desc.BufferDesc.Width = (UINT)(rect.right - rect.left);
+        desc.BufferDesc.Height = (UINT)(rect.bottom - rect.top);
+        desc.BufferDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+        desc.SampleDesc.Count = 1;
+        desc.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
+        desc.BufferCount = 2;
+        desc.OutputWindow = window->hwnd;
+        desc.Windowed = TRUE;
+        desc.SwapEffect = DXGI_SWAP_EFFECT_DISCARD;
+
+        auto* d3d = new UiD3D11();
+        D3D_FEATURE_LEVEL feature_level{};
+        D3D_FEATURE_LEVEL levels[] = {D3D_FEATURE_LEVEL_11_0, D3D_FEATURE_LEVEL_10_0};
+        HRESULT hr = D3D11CreateDeviceAndSwapChain(
+            NULL,
+            D3D_DRIVER_TYPE_HARDWARE,
+            NULL,
+            0,
+            levels,
+            ARRAYSIZE(levels),
+            D3D11_SDK_VERSION,
+            &desc,
+            &d3d->swap_chain,
+            &d3d->device,
+            &feature_level,
+            &d3d->device_context);
+        if (FAILED(hr)) {
+            delete d3d;
+            PushNilError(L, "D3D11CreateDeviceAndSwapChain failed: HRESULT " + std::to_string(hr));
+            return 2;
+        }
+        std::string error;
+        if (!CreateRenderTarget(d3d, error)) {
+            if (d3d->device_context) d3d->device_context->Release();
+            if (d3d->device) d3d->device->Release();
+            if (d3d->swap_chain) d3d->swap_chain->Release();
+            delete d3d;
+            PushNilError(L, error);
+            return 2;
+        }
+
+        PushUiD3D11(L, d3d);
+        return 1;
+    }
+
+    static int pesh_ui_begin_d3d11_frame(lua_State* L)
+    {
+        UiD3D11* d3d = CheckUiD3D11(L, 1);
+        const float clear_color[4] = {0.08f, 0.09f, 0.10f, 1.0f};
+        d3d->device_context->OMSetRenderTargets(1, &d3d->render_target, nullptr);
+        d3d->device_context->ClearRenderTargetView(d3d->render_target, clear_color);
+        lua_pushboolean(L, 1);
+        return 1;
+    }
+
+    static int pesh_ui_end_d3d11_frame(lua_State* L)
+    {
+        UiD3D11* d3d = CheckUiD3D11(L, 1);
+        HRESULT hr = d3d->swap_chain->Present(1, 0);
+        if (FAILED(hr)) {
+            PushNilError(L, "IDXGISwapChain::Present failed: HRESULT " + std::to_string(hr));
+            return 2;
+        }
+        lua_pushboolean(L, 1);
+        return 1;
+    }
+
+    static int pesh_ui_destroy_d3d11(lua_State* L)
+    {
+        UiD3D11* d3d = CheckUiD3D11(L, 1);
+        if (d3d->render_target) d3d->render_target->Release();
+        if (d3d->device_context) d3d->device_context->Release();
+        if (d3d->device) d3d->device->Release();
+        if (d3d->swap_chain) d3d->swap_chain->Release();
+        delete d3d;
+        lua_pushnil(L);
+        lua_setfield(L, 1, "_native");
+        lua_pushnil(L);
+        lua_setfield(L, 1, "device");
+        lua_pushnil(L);
+        lua_setfield(L, 1, "device_context");
+        lua_pushnil(L);
+        lua_setfield(L, 1, "swap_chain");
+        lua_pushboolean(L, 1);
+        return 1;
+    }
+
+    static int pesh_ui_poll_events(lua_State* L)
+    {
+        MSG msg;
+        while (PeekMessage(&msg, NULL, 0, 0, PM_REMOVE)) {
+            if (msg.message == WM_QUIT) {
+                lua_pushboolean(L, 0);
+                return 1;
+            }
+            TranslateMessage(&msg);
+            DispatchMessage(&msg);
+        }
+        lua_pushboolean(L, 1);
+        return 1;
+    }
 
     static int pesh_sleep(lua_State* L)
     {
@@ -212,6 +498,16 @@ namespace LuaBindings
     DEFINE_LOG_FUNC(warn, warn)
     DEFINE_LOG_FUNC(error, error)
     DEFINE_LOG_FUNC(critical, critical)
+
+    static const struct luaL_Reg pesh_native_ui_lib[] = {
+        {"create_window", pesh_ui_create_window},
+        {"destroy_window", pesh_ui_destroy_window},
+        {"create_d3d11", pesh_ui_create_d3d11},
+        {"begin_d3d11_frame", pesh_ui_begin_d3d11_frame},
+        {"end_d3d11_frame", pesh_ui_end_d3d11_frame},
+        {"destroy_d3d11", pesh_ui_destroy_d3d11},
+        {"poll_events", pesh_ui_poll_events},
+        {NULL, NULL}};
 }
 
 lua_State* InitializeLuaState(const std::string& package_root_dir)
@@ -235,6 +531,9 @@ lua_State* InitializeLuaState(const std::string& package_root_dir)
         {NULL, NULL}};
     lua_newtable(L);
     luaL_setfuncs(L, pesh_native_lib, 0);
+    lua_newtable(L);
+    luaL_setfuncs(L, LuaBindings::pesh_native_ui_lib, 0);
+    lua_setfield(L, -2, "ui");
     lua_setglobal(L, "pesh_native");
 
     std::filesystem::path exe_dir = std::filesystem::path(package_root_dir) / "bin";

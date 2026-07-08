@@ -1,10 +1,10 @@
 Proc-Utils-FFI 开发者技术参考手册
 ================================================================================
-版本：3.3.5
-代号：Refactored / PEShell-Ready
+版本：3.5.0
+代号：Pure OOP / Feature Complete
 适用环境：Windows / LuaJIT 2.1
-依赖库：lua-ffi-bindings (Standard PEShell/ffi Structure)
-文档更新日期：2025-11-23
+依赖库：lua-ffi-bindings (ffi.Windows.sdk.* 命名空间)
+文档更新日期：2025-11-24
 ================================================================================
 
 1. 项目概述
@@ -14,34 +14,43 @@ Proc-Utils-FFI 是一个专为 Windows 平台设计的、基于 LuaJIT FFI 技�
 
 主要特性：
 - 纯 Lua 实现：零 C 语言编译依赖，直接通过 FFI 调用 Kernel32/Ntdll/Psapi/Wtsapi32。
-- 面向对象设计：提供 Process 对象封装，简化句柄管理。
-- 资源安全 (RAII)：支持通过 Lua GC 自动回收内核句柄，同时新增显式 close() 方法支持确定性资源释放。
+- 面向对象设计：提供 Process 对象封装，支持链式调用。
+- 资源安全 (RAII)：Process 对象利用 __gc 元方法自动管理句柄生命周期，防止资源泄漏。
 - 深度信息获取：支持跨进程读取命令行 (基于 PEB 解析)、内存使用量、线程数等。
-- 提权执行：内置 Session 0 隔离穿透能力，支持以 SYSTEM 权限启动交互式进程。
+- 提权执行：
+  - 内置 SeDebugPrivilege 自动提权。
+  - 支持 exec_as_system 穿透 Session 0 隔离，在用户桌面以 SYSTEM 权限启动交互式进程。
+- 优雅退出：新增 terminate_gracefully 支持发送 WM_CLOSE 消息。
 - Unicode 就绪：全链路采用 WCHAR (UTF-16LE) 处理，完美支持中文路径与参数。
 
 2. 安装与部署
 --------------------------------------------------------------------------------
-本库依赖于特定的 FFI 绑定库结构（PEShell 标准结构）。
+本库依赖于 `lua-ffi-bindings` 提供的 Windows API 定义。
 
 2.1 文件结构要求
-确保你的项目目录包含以下结构，以便 require 能够正确加载：
+代码内部使用 `require('ffi.Windows.sdk.' .. name)` 加载依赖。
+请确保你的 `package.path` 或目录结构能够解析该路径。典型的目录结构如下：
 
 / (项目根目录)
   |-- proc_utils_ffi.lua  (本库)
-  |-- lib/
-      |-- ffi/
-          |-- Windows/
-              |-- sdk/
-                  |-- kernel32.lua
-                  |-- psapi.lua
-                  |-- advapi32.lua
-                  |-- wtsapi32.lua
-                  |-- userenv.lua
-                  |-- ntdll.lua
+  |-- ffi/
+      |-- Windows/
+          |-- sdk/
+              |-- kernel32.lua
+              |-- psapi.lua
+              |-- advapi32.lua
+              |-- wtsapi32.lua
+              |-- userenv.lua
+              |-- ntdll.lua
+              |-- user32.lua
 
 2.2 引入方式
 local proc = require("proc_utils_ffi")
+
+if not proc._OS_SUPPORT then
+    print("错误: 本库仅支持 Windows 系统")
+    return
+end
 
 3. API 接口参考
 --------------------------------------------------------------------------------
@@ -56,13 +65,13 @@ proc.exec(command, [working_dir], [show_mode], [desktop_name])
     参数：
         command (string): 完整的命令行字符串。
         working_dir (string, 可选): 工作目录。
-        show_mode (number, 可选): 窗口显示模式，默认 SW_SHOW (5)。
+        show_mode (number, 可选): 窗口显示模式，默认 SW_SHOW (5)。见 proc.constants。
         desktop_name (string, 可选): 指定桌面，例如 "winsta0\default"。
     返回：成功返回 Process 对象，失败返回 nil 及错误信息。
 
 proc.exec_as_system(command, [working_dir], [show_mode])
-    描述：模拟 SYSTEM 权限在当前活动用户的会话中启动进程（绕过 Session 0 隔离）。
-    场景：通常用于服务程序需要启动用户可见的 GUI 程序时。
+    描述：以 SYSTEM 权限在当前活动用户的控制台会话中启动进程。
+    机制：复制当前活动 Session 的用户令牌 -> 提升至 Primary Token -> 创建环境块 -> CreateProcessAsUserW。
     返回：成功返回 Process 对象，失败返回 nil 及错误信息。
 
 proc.open_by_pid(pid, [access])
@@ -92,26 +101,39 @@ proc.find_all(process_name)
     返回：PID 数组表 {1024, 2048, ...}。若无匹配返回空表。
 
 proc.terminate_by_pid(pid, [exit_code])
-    描述：直接通过 PID 终止进程。
+    描述：直接通过 PID 强制终止进程。
     返回：boolean (成功/失败)。
 
+proc.terminate_gracefully(pid, [timeout_ms])
+    描述：尝试优雅关闭进程。
+    机制：
+        1. 枚举该 PID 拥有的所有窗口。
+        2. 发送 WM_CLOSE 消息。
+        3. 等待进程退出 (timeout_ms，默认 3000ms)。
+        4. 如果超时仍未退出，则强制 Kill。
+    返回：boolean (成功关闭则为 true)。
+
 proc.wait(process_name, [timeout_ms])
-    描述：阻塞等待直到指定名称的进程出现。
+    描述：阻塞等待直到指定名称的进程**启动/出现**。
     参数：timeout_ms 默认为 -1 (无限等待)。
     返回：成功返回 PID，超时返回 nil。
 
 proc.wait_close(pid_or_name, [timeout_ms])
-    描述：阻塞等待直到指定进程结束或消失。
+    描述：阻塞等待直到指定进程**结束/消失**。
     原理：使用 SYNCHRONIZE 权限打开句柄并等待信号，比轮询更高效。
     返回：true 表示进程已结束，false 表示等待超时。
+
+proc.enable_privilege()
+    描述：尝试启用当前进程的 SeDebugPrivilege。
+    注意：库加载时会自动尝试调用一次。
+    返回：true/false。
 
 3.3 Process 对象方法
 Process 对象持有 Windows 内核句柄。
 
 :close()
-    [v3.3.5 新增]
     描述：显式关闭底层句柄并释放资源。
-    注意：虽然 Lua GC 会自动关闭句柄，但在高频操作中建议手动调用此方法以避免句柄耗尽。
+    注意：虽然 __gc 会自动关闭句柄，但在高频循环操作中建议手动调用此方法。
     返回：boolean。
 
 :is_valid()
@@ -120,15 +142,19 @@ Process 对象持有 Windows 内核句柄。
 
 :handle()
     描述：获取原始 FFI 句柄 (cdata<HANDLE>)。
-    警告：仅供高级用户使用，请勿手动调用 kernel32.CloseHandle，否则会导致 Double Free。
+    警告：仅供高级用户使用。
 
 :terminate([exit_code])
-    描述：强制终止该进程。
+    描述：强制终止该进程实例。
+    逻辑：
+        1. 优先尝试使用对象内部已持有的句柄进行 TerminateProcess。
+        2. 如果内部句柄权限不足，则尝试重新 OpenProcess 并终止。
     参数：exit_code 默认为 0。
     返回：ok, code, msg。
 
 :terminate_tree()
-    描述：递归终止该进程及其所有子进程（基于父子进程链）。
+    描述：递归终止该进程及其所有子进程。
+    机制：遍历快照查找父进程 ID 为当前 PID 的进程，递归调用，最后终止自身。
     返回：boolean。
 
 :wait_for_exit([timeout_ms])
@@ -140,21 +166,22 @@ Process 对象持有 Windows 内核句柄。
     返回：一个包含以下字段的表：
         {
             pid = number,
-            parent_pid = number,      -- 父进程 ID
-            session_id = number,      -- 会话 ID
-            exe_path = string,        -- 可执行文件完整路径
-            command_line = string,    -- 完整命令行
+            parent_pid = number,         -- 父进程 ID
+            session_id = number,         -- 会话 ID (-1 表示获取失败)
+            exe_path = string,           -- 可执行文件完整路径
+            command_line = string,       -- 完整命令行
             memory_usage_bytes = number, -- 工作集内存占用 (字节)
-            thread_count = number     -- 线程数
+            thread_count = number        -- 线程数
         }
 
 :get_path()
-    描述：仅获取可执行文件路径（高性能版）。
+    描述：仅获取可执行文件路径（高性能版，使用 QueryFullProcessImageNameW）。
     返回：string。
 
 :get_command_line()
     描述：仅获取命令行参数。
     原理：通过 NtQueryInformationProcess 读取目标进程 PEB。
+    注意：跨位数读取 (32位读64位) 可能会失败。
     返回：string。
 
 :set_priority(priority_char)
@@ -170,42 +197,52 @@ Process 对象持有 Windows 内核句柄。
 
 3.4 常量定义 (proc.constants)
 
-SW_HIDE             = 0
-SW_SHOWNORMAL       = 1
-SW_SHOW             = 5
-PROCESS_ALL_ACCESS  = (System Dependent, usually 0x1F0FFF)
+窗口模式：
+    SW_HIDE             = 0
+    SW_SHOWNORMAL       = 1
+    SW_SHOW             = 5
 
-4. 技术细节与注意事项
+权限标志：
+    PROCESS_ALL_ACCESS        = (System Dependent)
+    PROCESS_TERMINATE         = 0x0001
+    PROCESS_QUERY_INFORMATION = 0x0400
+    SYNCHRONIZE               = 0x00100000
+
+4. 技术细节与常见问题
 --------------------------------------------------------------------------------
 
 4.1 字符串编码
 Windows API 内部使用 UTF-16LE。本库自动处理 Lua String (UTF-8) 与 WCHAR 之间的转换。
 - 输入参数自动转为 WCHAR。
 - 输出结果自动转为 UTF-8。
-- v3.3.5 修复了空字符串指针可能导致的转换崩溃问题。
+- 修复了空字符串指针可能导致的转换崩溃问题。
 
 4.2 资源管理 (RAII)
-本库使用 LuaJIT 的 `ffi.gc` 机制绑定句柄。
-- 当 Process 对象被垃圾回收时，会自动调用 CloseHandle。
-- 推荐在确定不再使用对象时，显式调用 `:close()`，特别是在循环中创建大量进程对象的场景。
+Process 对象实现了 `__gc` 元方法。
+- 当 Process 对象离开作用域被 Lua GC 回收时，会自动调用 `CloseHandle`。
+- 如果手动调用了 `:close()`，`__gc` 将不会重复关闭。
 
-4.3 跨进程读取限制
-`:get_command_line()` 使用了读取 PEB (Process Environment Block) 的技术。
-- 如果目标进程是 64 位而当前脚本运行在 32 位环境（或反之），可能会因为内存布局不同而读取失败。
-- 对于受保护的系统进程（如 Antivirus, CSRSS），可能因权限不足 (Access Denied) 而失败。
+4.3 SYSTEM 提权与 Session 0
+`proc.exec_as_system` 是本库的高级功能。
+普通服务运行在 Session 0，无法显示 GUI。该函数通过获取活动 Session (WTSGetActiveConsoleSessionId) 的 Token，模拟用户身份在桌面 Session (通常是 Session 1 或 2) 启动进程。
 
 4.4 错误处理
 API 失败时返回的 `error_code` 对应 Windows System Error Codes。
 常见代码：
 - 5: Access Denied (权限不足，尝试以管理员运行)
-- 6: Invalid Handle (句柄无效，可能已关闭)
+- 6: Invalid Handle (句柄无效)
 - 87: Invalid Parameter (参数错误)
 - 258: Wait Timeout (等待超时)
+- 299: Partial Copy (通常发生在读取 64 位进程内存时)
+- 1008: An attempt was made to reference a token that does not exist. (无活动用户会话)
 
-5. 变更日志 (v3.3.5)
+5. 变更日志 (v3.5.0)
 --------------------------------------------------------------------------------
-[FIX] 修复了 ffi.gc 类型错误：Process 对象是 Lua 表而非 userdata，移除了错误的 ffi.gc(self) 调用。
-[FIX] 修正了 require 路径，使其符合 PEShell 的 `ffi.Windows.sdk.*` 规范。
-[NEW] 新增 `Process:close()` 方法，支持确定性资源释放。
-[MOD] 优化 `exec` 和 `exec_as_system`：直接利用创建时返回的句柄，减少一次 OpenProcess 调用。
-[MOD] `wait_close` 现在使用 SYNCHRONIZE 权限，降低 CPU 占用。
+[NEW] 新增 `proc.terminate_gracefully`，支持发送 WM_CLOSE 软关闭。
+[NEW] 新增 `proc.wait` 静态方法，用于等待进程启动。
+[NEW] 新增 `proc.wait_close` 静态方法，用于等待进程结束。
+[IMP] 改进 `Process:terminate` 逻辑，优先使用现有句柄，减少系统调用开销。
+[IMP] `exec_as_system` 现在会正确设置 TokenPrimary 和 EnvironmentBlock。
+[FIX] 修复了 `get_info` 中 session_id 可能未初始化的问题。
+[FIX] 完善了 Unicode 转换的健壮性。
+[ADD] 显式导出 `enable_privilege` 函数。

@@ -51,6 +51,8 @@ target_link_libraries(peshell PRIVATE
     ole32.lib 
     advapi32.lib 
     winmm.lib
+    d3d11.lib
+    dxgi.lib
 )
 
 # 复制 lua51.dll
@@ -65,4 +67,15 @@ add_custom_command(TARGET peshell POST_BUILD
 install(TARGETS peshell RUNTIME DESTINATION bin)
 install(FILES ${LUAJIT_DLL} DESTINATION bin)
 install(DIRECTORY scripts/ DESTINATION share/lua/5.1)
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../win-kit")
+    install(DIRECTORY ../win-kit/ DESTINATION share/lua/5.1/win-kit
+        PATTERN ".git" EXCLUDE
+    )
+endif()
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../win-utils")
+    install(DIRECTORY ../win-utils/ DESTINATION share/lua/5.1/win-utils
+        PATTERN ".git" EXCLUDE
+        PATTERN "vendor/luajit" EXCLUDE
+    )
+endif()
 install(FILES start_peshell_main.bat DESTINATION .)

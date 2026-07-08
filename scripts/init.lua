@@ -1,15 +1,15 @@
 -- scripts/init.lua
--- PEShell PE 初始化主脚本 (Refactored for lua-ext & async)
+-- PEShell PE profile runner entry point.
 
 -- 1. 环境准备
 local log = _G.log
 local pesh = _G.pesh
-local path = require("ext.path")   -- 直接使用 lua-ext 的路径对象
-local os_ext = require("ext.os")   -- 使用 lua-ext 的系统扩展
+local path = require("ext.path")
+local os_ext = require("ext.os")
+local runner = require("tasks.runner")
 
 -- 加载核心插件
 local process = pesh.plugin.load("process")
-local pe = pesh.plugin.load("pe")
 local shell = pesh.plugin.load("shell")
 local async = pesh.plugin.load("async")
 
@@ -50,10 +50,16 @@ local function boot_sequence()
         log.warn("wpeinit.exe not found at: ", wpeinit_exe:str())
     end
 
-    -- [Step 2] PE 用户环境初始化
-    log.info("Step 2: User Environment Setup...")
-    pe.initialize()
-    log.info("Environment initialized.")
+    -- [Step 2] 运行 WinPE profile tasks。具体策略由 win-kit.tasks 提供。
+    log.info("Step 2: Running WinPE profile tasks...")
+    local profile_name = (_G.arg and _G.arg[1]) or "profiles.default"
+    local profile = require(profile_name)
+    local result, task_err = runner.run(profile, { logger = log })
+    if not result then
+        log.critical("Profile failed: ", tostring(task_err and task_err.error or task_err))
+        return
+    end
+    log.info("Profile completed: ", tostring(result.profile))
 
     -- [Step 3] 启动 Shell 守护
     log.info("Step 3: Launching Shell Guardian...")

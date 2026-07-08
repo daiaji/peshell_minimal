@@ -13,9 +13,35 @@ do
         scripts_dir .. '/lib/?.lua',
         scripts_dir .. '/lib/?/init.lua',
         scripts_dir .. '/core/?.lua',
+        scripts_dir .. '/win-utils/vendor/lua-ext/?.lua',
+        scripts_dir .. '/win-utils/vendor/lua-ext/?/init.lua',
+        scripts_dir .. '/win-utils/vendor/lua-ffi-bindings/?.lua',
+        scripts_dir .. '/win-utils/vendor/lua-ffi-bindings/?/init.lua',
+        scripts_dir .. '/win-kit/?.lua',
+        scripts_dir .. '/win-kit/?/init.lua',
+        scripts_dir .. '/win-utils/?.lua',
+        scripts_dir .. '/win-utils/?/init.lua',
     }
     package.path = table.concat(path_template, ';') .. ';' .. package.path
     package.cpath = exe_dir .. '/?.dll;' .. package.cpath
+
+    local searchers = package.searchers or package.loaders
+    local function vendor_searcher(modname)
+        local rel
+        if modname:match('^ext%.') then
+            rel = '/win-utils/vendor/lua-ext/' .. modname:sub(5):gsub('%.', '/') .. '.lua'
+        elseif modname:match('^ffi%.') then
+            rel = '/win-utils/vendor/lua-ffi-bindings/' .. modname:sub(5):gsub('%.', '/') .. '.lua'
+        else
+            return '\n\tno peshell vendor mapping for ' .. modname
+        end
+
+        local chunk, err = loadfile(scripts_dir .. rel)
+        if chunk then return chunk end
+        return "\n\tno file '" .. scripts_dir .. rel .. "': " .. tostring(err)
+    end
+
+    table.insert(searchers, 1, vendor_searcher)
 end
 
 -- 2. 初始化核心环境 (Lua-Ext)

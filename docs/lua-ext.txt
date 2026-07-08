@@ -1,7 +1,7 @@
 Lua-Ext 开发者完全参考手册
 版本：dev-1-update
 适用环境：Lua 5.1 / LuaJIT 2.1
-文档更新时间：2025-11-23
+文档更新时间：2025-11-24
 
 ================================================================================
 第一部分：核心环境与基础扩展
@@ -66,6 +66,7 @@ t:reduce(func(acc, v) -> new_acc, [init]): 归约操作。
 t:combine(func(acc, v) -> new_acc): 类似 reduce，但以首元素为初始值。
 t:sum(): 求和。
 t:product(): 求积。
+t:iter(): 返回一个 Iter 对象（见 Iter 章节），用于链式迭代。
 
 2.3 查找与排序
 t:find(val, [eq_func]): 查找值的键，eq_func 默认为 ==。
@@ -82,6 +83,7 @@ t:append(t2, ...): 将 t2 的数组部分追加到 t。
 t:union(t2, ...): 将 t2 的键值对合并到 t。
 t:removeKeys(k1, ...): 移除指定键。
 t:removeObject(val): 移除所有等于 val 的值。
+t:insertUnique(val, [eq_func]): 仅当值不存在时插入。
 
 3. 字符串操作 (ext.string)
 s:split(sep): 分割字符串，无 sep 则按字符分割。
@@ -97,18 +99,25 @@ s:csub(start, len): C 风格子串截取（start 从 0 开始）。
 math.clamp(x, min, max): 限制范围。
 math.sign(x): 符号函数 (-1, 0, 1)。
 math.round(x): 四舍五入。
-math.lerp(a, b, t) / math.mix: 线性插值。
 math.isprime(n): 素数判断。
 math.factors(n): 返回因子表。
 math.primeFactorization(n): 返回质因数分解表。
 math.gcd(a, b): 最大公约数。
 number.tostring(n, base): 支持任意进制转换（如 base=2, 16）。
+number.bin(x), number.oct(x), number.hex(x): 进制转换快捷方式。
 
 5. 其他数据结构
+Iter: 迭代器封装对象。
+  - Iter(iterator): 构造。
+  - iter:filter(fn): 过滤。
+  - iter:map(fn): 映射。
+  - iter:toTable(): 转为表。
+  - iter:reduce(fn, acc): 归约。
 Set: 集合。支持 + (并), - (差), * (交) 运算符。
 OrderedMap: 保持插入顺序的字典。支持 m:set(k,v) 和 m:iter()。
-Array2D: 二维数组。FFI 模式下使用 double[] 连续内存优化。
-Date: 日期对象，支持日期算术运算。
+MultiMap: 多值映射表（一个 Key 对应多个 Value）。
+Array2D: 二维数组。FFI 模式下使用 double[] 连续内存优化，非 FFI 环境回退到 Table 实现。
+Date: 日期对象，支持日期算术运算（如 date + {day=1}）。
 
 ================================================================================
 第三部分：系统、IO 与 路径 (Windows Unicode 增强版)
@@ -188,26 +197,30 @@ p:append(data): 追加写入内容。
 p:lines(): 返回文件行迭代器。
 
 7. 输入/输出 (ext.io)
+说明：在 Windows 平台若检测到 lfs_ffi，io 库会被钩挂以使用 lfs.fopen，从而支持 Unicode 路径。
 io.readfile(path): 读取全文件。
 io.writefile(path, data): 以 "wb" 模式覆盖写入。
 io.appendfile(path, data): 以 "ab" 模式追加写入。
 io.readproc(cmd): 运行命令并获取标准输出。
 io.getfiledir(path): 获取路径的目录部分。
 io.getfileext(path): 获取文件名和扩展名。
+io.popen(cmd, mode): [Windows] 重写为使用 _wpopen 以支持 Unicode 命令。
+io.tmpfile(): [Windows] 使用 os.tmpname + io.open 实现，避免权限问题。
 
 8. 操作系统接口 (ext.os)
 os.path(str): 将路径分隔符转换为当前系统格式。
 os.execute(cmd): 增强版命令执行，支持 Windows UTF-8。
 os.getenv / os.setenv: 环境变量操作，支持 Windows UTF-8。
-os.mkdir(path, [recursive]): 创建目录。
-os.move(src, dst): 移动/重命名。
+os.mkdir(path, [recursive]): 创建目录，支持递归创建（堆栈式实现）。
+os.move(src, dst): 移动/重命名。优先使用 lfs.rename_file 或 Windows MoveFileExW。
+os.copy(src, dst): 文件复制。支持流式复制或 Windows CopyFileW。
 os.rmdir(dir): 删除空目录。
 os.remove(file): 删除文件。
 os.listdir(path): 遍历目录文件名。
 os.fileexists(path): 检查路径存在性。
 os.isdir(path): 检查是否为目录。
 os.home(): 获取用户主目录。
-os.tmpname(): 生成临时文件名。
+os.sleep_pump(ms): [Windows] 带有消息泵的 Sleep，防止 GUI 程序卡死。
 
 ================================================================================
 第四部分：高级工具库
@@ -221,21 +234,24 @@ obj = MyClass(...): 实例化。
 MyClass:isa(obj) / obj:isa(Class): 类型检查，支持继承链。
 
 10. 函数式编程 (ext.func)
-占位符: _1, _2 ... 代表参数位置。
+占位符: _1, _2 ... _5 代表参数位置。
 表达式构造 (P):
 - local f = _1 + _2 等价于 function(a,b) return a+b end。
+- P.Not(expr), P.Len(expr), P.Eq(a,b) 等用于逻辑构建。
 辅助函数: func.bind, func.compose。
 
 11. 调试与计时
-ext.debug: 源码级调试标记。
-ext.timer: 高精度时间与 UTC 转换。
+ext.debug: 源码级调试标记（--DEBUG:）。
+ext.timer: 高精度时间与 UTC 转换，简单的性能计时器。
 
 12. 序列化与配置
 ext.tolua / ext.fromlua: Lua 对象序列化与反序列化。
-ext.cmdline: 简单命令行参数解析。
-ext.cli: 严格模式命令行解析。
+ext.cmdline: 简单命令行参数解析（全局 cmdline 表）。
+ext.cli: 严格模式命令行解析（支持 flag, default, 类型转换）。
 ext.xml: XML 解析与生成。
-ext.config: INI 配置读取。
+ext.csv: CSV 读取。
+ext.config: INI 风格配置读取。
+ext.template: 简单的 ${key} 字符串模板替换。
 
 ================================================================================
 第五部分：Windows Unicode/UTF-8 技术内幕
@@ -245,7 +261,7 @@ ext.config: INI 配置读取。
 加载 ext.ext 后，自动将 Windows 控制台代码页设置为 65001 (UTF-8)，并修正全局 arg 表以支持 Unicode 参数。
 
 13.2 文件系统 API 映射
-库内部通过 FFI 将标准 Lua IO/OS API 映射到 Windows 宽字符版本 (_wfopen, _wremove 等)，实现透明的中文路径支持。
+库内部通过 FFI 将标准 Lua IO/OS API 映射到 Windows 宽字符版本 (_wfopen, _wremove, _wputenv 等)，实现透明的中文路径支持。
 
 13.3 依赖说明
-强烈建议安装 lfs_ffi (LuaFileSystem FFI)，以获得高性能的目录遍历和准确的文件属性支持。ext.path 会自动检测并优先使用 lfs_ffi。
+强烈建议安装 lfs_ffi (LuaFileSystem FFI)，以获得高性能的目录遍历和准确的文件属性支持。ext.path 会自动检测并优先使用 lfs_ffi。如果系统安装了 luajit，部分功能会启用 FFI 优化（如 Array2D）。
