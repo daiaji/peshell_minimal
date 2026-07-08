@@ -84,7 +84,11 @@ jobs:
           Copy-Item "${{ env.LUAJIT_BIN_DIR }}\bin\lua51.dll" $bin
           Copy-Item "start_peshell_main.bat" $pkg
 
-          Copy-Item "scripts/core", "scripts/plugins", "scripts/lib", "scripts/profiles", "scripts/*.lua" $lua -Recurse
+          Copy-Item "scripts/core" "$lua/core" -Recurse -Force
+          Copy-Item "scripts/plugins" "$lua/plugins" -Recurse -Force
+          Copy-Item "scripts/profiles" "$lua/profiles" -Recurse -Force
+          Copy-Item "scripts/lib/*" "$lua/lib/" -Recurse -Force
+          Copy-Item "scripts/*.lua" $lua -Force
           Copy-Item "${{ env.LUAJIT_BIN_DIR }}\jit\*.lua" $jit
 
           Copy-Item "vendor/lua-ext" "$lib/ext" -Recurse -Exclude .git,vendor
