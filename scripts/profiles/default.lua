@@ -10,6 +10,7 @@ return {
         'assign_drive_letters',
         'setup_pagefile',
         'setup_display',
+        'setup_network',
         'shutdown_cleanup',
     },
     tasks = {
@@ -26,6 +27,7 @@ return {
             size_mb = 1024,
         },
         setup_display = {},
+        setup_network = false,
         shutdown_cleanup = false,
     },
 }
