@@ -67,7 +67,10 @@ function M.list_files(p)
     
     -- path:dir() returns Path objects
     for f in p_obj:dir() do
-        if f:isfile() then table.insert(res, f:str()) end
+        if f:isfile() then
+            local file_path = f:str()
+            table.insert(res, file_path)
+        end
     end
     return res
 end
@@ -78,7 +81,10 @@ function M.list_dirs(p)
     if not p_obj:isdir() then return nil, "Not a directory" end
     
     for f in p_obj:dir() do
-        if f:isdir() then table.insert(res, f:str()) end
+        if f:isdir() then
+            local dir_path = f:str()
+            table.insert(res, dir_path)
+        end
     end
     return res
 end
