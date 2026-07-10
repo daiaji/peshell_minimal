@@ -39,14 +39,12 @@ ImGui is sufficient and still leaves room for custom themes and richer drawing.
 
 ## Missing Runtime Dependencies
 
-- A generated `ffi.cimgui` binding file, or a compatible `cimgui.dll` exposing
-  the cimgui C API names used by `ui.imgui`.
 - Windows build verification with MSVC/Windows SDK.
 - Real render verification on Windows with `cimgui.dll` next to `peshell.exe`.
 
 ## Next UI Milestone
 
-1. Package `cimgui.dll` beside `peshell.exe`.
+1. Keep CI building and packaging `cimgui.dll` beside `peshell.exe`.
 2. Build and run `imgui-native-smoke` on Windows.
 3. Add swap-chain resize handling.
 4. Add an AHK v2-like `ui.gui` layer on top of the widget/runtime primitives.

@@ -37,7 +37,8 @@ function M.frame(rt, draw)
     elseif draw then
         draw(nil, rt.imgui_error)
     end
-    rt.backend.render(rt.backend_ctx)
+    local ok, err = rt.backend.render(rt.backend_ctx)
+    if not ok then error(err or "backend render failed") end
     return true
 end
 

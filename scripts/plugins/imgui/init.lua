@@ -38,6 +38,7 @@ function M.native_smoke(opts)
     local rendered = 0
     local message_box = require("ui.widgets.message_box")
     local file_picker = require("ui.widgets.file_picker")
+    local gui_mod = require("ui.gui")
     local message = message_box.create({
         title = "PEShell",
         message = "ImGui native host smoke test",
@@ -48,11 +49,19 @@ function M.native_smoke(opts)
         mode = "open",
         fs = opts.fs,
     })
+    local gui = gui_mod.create({ title = "PEShell GUI" })
+    gui:AddText("vTitle", "AHK-like GUI smoke")
+    gui:AddEdit("vImage", opts.image or "X:\\install.wim")
+    local progress = gui:AddProgress("vProgress", "Deploy")
+    progress:SetRange(0, 100)
+    progress:SetValue(25)
+    gui:Show()
     local ok, err = pcall(function()
         while frames > 0 and runtime.frame(rt, function(cimgui, imgui_err)
             if not cimgui then error(imgui_err or "imgui unavailable") end
             message_box.draw(message, cimgui)
             file_picker.draw(picker, cimgui)
+            gui:Draw(cimgui)
             rendered = rendered + 1
         end) do
             frames = frames - 1
@@ -60,7 +69,7 @@ function M.native_smoke(opts)
     end)
     runtime.shutdown(rt)
     if not ok then return nil, err end
-    return { frames = rendered, message = message.selected, file = picker.selected }
+    return { frames = rendered, message = message.selected, file = picker.selected, gui = gui:Submit() }
 end
 
 M.__commands = {

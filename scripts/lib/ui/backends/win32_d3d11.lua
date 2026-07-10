@@ -79,11 +79,13 @@ function M.render(ctx)
     local cimgui = assert(imgui.load())
     local ui = type(_G.pesh_native) == "table" and type(_G.pesh_native.ui) == "table" and _G.pesh_native.ui or nil
     if ui and type(ui.begin_d3d11_frame) == "function" and ctx and ctx.d3d then
-        ui.begin_d3d11_frame(ctx.d3d)
+        local ok, err = ui.begin_d3d11_frame(ctx.d3d)
+        if not ok then return nil, err or "begin_d3d11_frame failed" end
     end
     cimgui.ImGui_ImplDX11_RenderDrawData(cimgui.igGetDrawData())
     if ui and type(ui.end_d3d11_frame) == "function" and ctx and ctx.d3d then
-        ui.end_d3d11_frame(ctx.d3d)
+        local ok, err = ui.end_d3d11_frame(ctx.d3d)
+        if not ok then return nil, err or "end_d3d11_frame failed" end
     end
     return true
 end

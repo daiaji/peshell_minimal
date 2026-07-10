@@ -68,10 +68,13 @@ namespace LuaBindings
 
     struct UiD3D11
     {
+        HWND                    hwnd = NULL;
         IDXGISwapChain*        swap_chain = nullptr;
         ID3D11Device*          device = nullptr;
         ID3D11DeviceContext*   device_context = nullptr;
         ID3D11RenderTargetView* render_target = nullptr;
+        UINT                    width = 0;
+        UINT                    height = 0;
     };
 
     static const wchar_t* kUiWindowClassName = L"PEShellMinimalUiWindow";
@@ -150,6 +153,14 @@ namespace LuaBindings
             return false;
         }
         return true;
+    }
+
+    static void ReleaseRenderTarget(UiD3D11* d3d)
+    {
+        if (d3d->render_target) {
+            d3d->render_target->Release();
+            d3d->render_target = nullptr;
+        }
     }
 
     static void PushUiWindow(lua_State* L, UiWindow* window)
@@ -254,6 +265,9 @@ namespace LuaBindings
         desc.SwapEffect = DXGI_SWAP_EFFECT_DISCARD;
 
         auto* d3d = new UiD3D11();
+        d3d->hwnd = window->hwnd;
+        d3d->width = desc.BufferDesc.Width;
+        d3d->height = desc.BufferDesc.Height;
         D3D_FEATURE_LEVEL feature_level{};
         D3D_FEATURE_LEVEL levels[] = {D3D_FEATURE_LEVEL_11_0, D3D_FEATURE_LEVEL_10_0};
         HRESULT hr = D3D11CreateDeviceAndSwapChain(
@@ -291,6 +305,30 @@ namespace LuaBindings
     static int pesh_ui_begin_d3d11_frame(lua_State* L)
     {
         UiD3D11* d3d = CheckUiD3D11(L, 1);
+        RECT rect{};
+        if (GetClientRect(d3d->hwnd, &rect)) {
+            UINT width = (UINT)(rect.right - rect.left);
+            UINT height = (UINT)(rect.bottom - rect.top);
+            if (width == 0 || height == 0) {
+                PushNilError(L, "window client area is empty");
+                return 2;
+            }
+            if (width != d3d->width || height != d3d->height) {
+                ReleaseRenderTarget(d3d);
+                HRESULT resize_hr = d3d->swap_chain->ResizeBuffers(0, width, height, DXGI_FORMAT_UNKNOWN, 0);
+                if (FAILED(resize_hr)) {
+                    PushNilError(L, "IDXGISwapChain::ResizeBuffers failed: HRESULT " + std::to_string(resize_hr));
+                    return 2;
+                }
+                d3d->width = width;
+                d3d->height = height;
+                std::string resize_error;
+                if (!CreateRenderTarget(d3d, resize_error)) {
+                    PushNilError(L, resize_error);
+                    return 2;
+                }
+            }
+        }
         const float clear_color[4] = {0.08f, 0.09f, 0.10f, 1.0f};
         d3d->device_context->OMSetRenderTargets(1, &d3d->render_target, nullptr);
         d3d->device_context->ClearRenderTargetView(d3d->render_target, clear_color);
@@ -303,6 +341,10 @@ namespace LuaBindings
         UiD3D11* d3d = CheckUiD3D11(L, 1);
         HRESULT hr = d3d->swap_chain->Present(1, 0);
         if (FAILED(hr)) {
+            if (hr == DXGI_ERROR_DEVICE_REMOVED || hr == DXGI_ERROR_DEVICE_RESET) {
+                PushNilError(L, "D3D11 device lost: HRESULT " + std::to_string(hr));
+                return 2;
+            }
             PushNilError(L, "IDXGISwapChain::Present failed: HRESULT " + std::to_string(hr));
             return 2;
         }
@@ -313,7 +355,7 @@ namespace LuaBindings
     static int pesh_ui_destroy_d3d11(lua_State* L)
     {
         UiD3D11* d3d = CheckUiD3D11(L, 1);
-        if (d3d->render_target) d3d->render_target->Release();
+        ReleaseRenderTarget(d3d);
         if (d3d->device_context) d3d->device_context->Release();
         if (d3d->device) d3d->device->Release();
         if (d3d->swap_chain) d3d->swap_chain->Release();

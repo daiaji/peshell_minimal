@@ -27,6 +27,17 @@ jobs:
         shell: pwsh
         run: .\update_vendor.ps1
 
+      - name: Checkout cimgui
+        shell: pwsh
+        run: |
+          git clone --recursive --branch docking_inter https://github.com/cimgui/cimgui.git "$env:RUNNER_TEMP\cimgui"
+
+      - name: Build cimgui Win32/DX11 DLL
+        shell: pwsh
+        run: |
+          cmake -S tools/cimgui_win32_dx11 -B build-cimgui -G "Ninja" -DCMAKE_BUILD_TYPE=Release -DCIMGUI_ROOT="$env:RUNNER_TEMP\cimgui"
+          cmake --build build-cimgui --config Release
+
       - name: Cache LuaJIT
         id: cache-luajit
         uses: actions/cache@v4
@@ -88,6 +99,19 @@ jobs:
 
           Copy-Item "build/bin/peshell.exe" $bin -Force
           Copy-Item "${{ env.LUAJIT_BIN_DIR }}\bin\lua51.dll" $bin -Force
+          $cimguiCandidates = @(
+            "cimgui.dll",
+            "build-cimgui/cimgui.dll",
+            "build/bin/cimgui.dll",
+            "vendor/cimgui/cimgui.dll"
+          )
+          foreach ($candidate in $cimguiCandidates) {
+            if (Test-Path $candidate) {
+              Copy-Item $candidate $bin -Force
+              Write-Host "Packaged cimgui.dll from $candidate"
+              break
+            }
+          }
           if (Test-Path "start_peshell_main.bat") { Copy-Item "start_peshell_main.bat" $pkg }
 
           Copy-Item "scripts/core" "$lua/core" -Recurse -Force
@@ -121,8 +145,16 @@ jobs:
 
       - name: Smoke Test
         working-directory: ${{ env.PACKAGE_PATH }}
+        shell: pwsh
         run: |
           .\bin\peshell.exe run share\lua\5.1\test_profile_runner.lua
+          .\bin\peshell.exe run share\lua\5.1\test_gui.lua
+          .\bin\peshell.exe imgui-probe
+          if (Test-Path ".\bin\cimgui.dll") {
+            .\bin\peshell.exe imgui-native-smoke
+          } else {
+            Write-Host "cimgui.dll is not packaged; skipping imgui-native-smoke."
+          }
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
@@ -146,6 +178,7 @@ jobs:
       - name: Profile runner smoke
         run: |
           luajit scripts/test_profile_runner.lua
+          luajit scripts/test_gui.lua
 
       - name: Lua syntax smoke
         run: |

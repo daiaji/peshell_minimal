@@ -33,6 +33,7 @@ local old_host = package.loaded["ui.native_host"]
 local old_runtime = package.loaded["ui.runtime"]
 local old_message = package.loaded["ui.widgets.message_box"]
 local old_picker = package.loaded["ui.widgets.file_picker"]
+local old_gui = package.loaded["ui.gui"]
 
 local calls = { frames = 0 }
 package.loaded["ui.native_host"] = {
@@ -85,6 +86,29 @@ package.loaded["ui.widgets.file_picker"] = {
         model.selected = "/tmp/a.txt"
     end,
 }
+package.loaded["ui.gui"] = {
+    create = function(opts)
+        assert(opts.title == "PEShell GUI")
+        return {
+            AddText = function(_, name, text)
+                calls.gui_text = name .. ":" .. text
+            end,
+            AddEdit = function(_, name, text)
+                calls.gui_edit = name .. ":" .. text
+            end,
+            AddProgress = function(_, name, text)
+                calls.gui_progress = name .. ":" .. text
+                return {
+                    SetRange = function(_, min, max) calls.gui_range = min .. ":" .. max end,
+                    SetValue = function(_, value) calls.gui_value = value end,
+                }
+            end,
+            Show = function() calls.gui_show = true end,
+            Draw = function(_, ig) calls.gui_draw = ig.token end,
+            Submit = function() return { Image = "X:\\install.wim" } end,
+        }
+    end,
+}
 
 plugin = require("plugins.imgui")
 result, err = plugin.native_smoke({ title = "Smoke", cwd = "/tmp", frames = 2, fs = {} })
@@ -92,8 +116,10 @@ assert(result, err)
 assert(result.frames == 2)
 assert(result.message == "OK")
 assert(result.file == "/tmp/a.txt")
+assert(result.gui.Image == "X:\\install.wim")
 assert(calls.message_draw == "ig")
 assert(calls.picker_draw == "ig")
+assert(calls.gui_draw == "ig")
 assert(calls.shutdown == true)
 assert(calls.native_destroy == true)
 
@@ -102,5 +128,6 @@ package.loaded["ui.native_host"] = old_host
 package.loaded["ui.runtime"] = old_runtime
 package.loaded["ui.widgets.message_box"] = old_message
 package.loaded["ui.widgets.file_picker"] = old_picker
+package.loaded["ui.gui"] = old_gui
 
 return true
