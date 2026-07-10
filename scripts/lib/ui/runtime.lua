@@ -47,8 +47,9 @@ end
 
 function M.shutdown(rt)
     if not rt then return true end
+    local ok, err = rt.backend.shutdown(rt.backend_ctx)
     if rt.imgui_ctx then imgui.destroy_context(rt.imgui_ctx) end
-    return rt.backend.shutdown(rt.backend_ctx)
+    return ok, err
 end
 
 return M
