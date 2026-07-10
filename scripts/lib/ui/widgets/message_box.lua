@@ -2,11 +2,6 @@ local M = {}
 
 local function vec2(ig, x, y)
     if ig.ImVec2 then return ig.ImVec2(x, y) end
-    local ok, ffi = pcall(require, "ffi")
-    if ok then
-        local created, value = pcall(ffi.new, "ImVec2", { x, y })
-        if created then return value end
-    end
     return { x = x, y = y }
 end
 
