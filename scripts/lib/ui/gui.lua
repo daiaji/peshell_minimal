@@ -2,7 +2,6 @@ local M = {}
 local bit = require("bit")
 
 local function vec2(ig, x, y)
-    if ig.ImVec2 then return ig.ImVec2(x, y) end
     return { x = x, y = y }
 end
 
