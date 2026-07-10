@@ -19,8 +19,6 @@ set(CIMGUI_SOURCES
     "${CIMGUI_ROOT}/imgui/imgui_draw.cpp"
     "${CIMGUI_ROOT}/imgui/imgui_demo.cpp"
     "${CIMGUI_ROOT}/imgui/imgui_widgets.cpp"
-    "${CIMGUI_ROOT}/imgui/backends/imgui_impl_win32.cpp"
-    "${CIMGUI_ROOT}/imgui/backends/imgui_impl_dx11.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/cimgui_win32_dx11_exports.cpp"
 )
 
