@@ -900,7 +900,7 @@ local function draw_text_control(control, ig)
         local value, changed = draw_radio(ig, label, control.value)
         if changed then control:SetValue(value) end
     elseif control.type == "Progress" then
-        if ig.igProgressBar then
+        if has(ig, "igProgressBar") then
             local span = control.max - control.min
             local ratio = span ~= 0 and ((tonumber(control.value) or 0) - control.min) / span or 0
             ig.igProgressBar(ratio, vec2(ig, control.w or -1, control.h or 0), control.text or "")
