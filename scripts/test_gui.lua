@@ -133,6 +133,16 @@ path_picker:SetPath("D:\\install.wim")
 assert(path_picker.path == "D:\\install.wim")
 path_picker:SetFilter("%.esd$")
 assert(path_picker.filter == "%.esd$")
+local picker_model = path_picker:OpenPicker({
+    cwd = "C:\\",
+    fs = {
+        list_dirs = function() return {} end,
+        list_files = function() return { "C:\\install.esd" } end,
+    },
+})
+assert(picker_model.open == true)
+path_picker:ClosePicker()
+assert(path_picker.picker == nil)
 
 local log_view = gui:AddLogView("vTaskLog")
 assert(log_view:AppendLog("started", "info") == 1)
@@ -140,6 +150,8 @@ assert(log_view.logs[1].text == "started")
 
 local disk_list = gui:AddDiskList("vDiskList")
 disk_list:SetDisks({ { index = 0, label = "System" }, { index = 1, label = "USB" } })
+assert(disk_list:AddDisk({ index = 2, label = "VHD" }) == 3)
+assert(disk_list:GetDisk(3).label == "VHD")
 assert(disk_list:MarkDanger(1, "system disk") == true)
 assert(disk_list.disks[1].danger == true)
 disk_list:SetTarget(disk_list.disks[2])
@@ -163,6 +175,7 @@ local hotkey = gui:AddHotkey("vShortcut", "Ctrl+Alt+D")
 local datetime = gui:AddDateTime("vWhen", "20260709")
 local monthcal = gui:AddMonthCal("vCalendar", "202607")
 local picture = gui:AddPic({ name = "Logo", path = "logo.png" })
+picture:SetTexture("texture-id", 128, 64)
 local link = gui:AddLink("vDocs", "Docs")
 local custom_drawn = false
 local custom = gui:AddCustom({ name = "Custom", draw = function() custom_drawn = true end }, "Custom")
@@ -234,6 +247,10 @@ local rich_ig = {
         return true
     end,
     igProgressBar = function(value) rich_calls.progress = value end,
+    igImage = function(texture, size)
+        rich_calls.image = texture
+        rich_calls.image_w = size.x
+    end,
     igSliderInt = function(label, ref)
         rich_calls.slider = label
         ref[0] = 77
@@ -250,7 +267,8 @@ local rich_ig = {
         return label == "Apply"
     end,
     igBeginTable = function(label, columns)
-        rich_calls.table = label .. ":" .. tostring(columns)
+        rich_calls.tables = rich_calls.tables or {}
+        rich_calls.tables[#rich_calls.tables + 1] = label .. ":" .. tostring(columns)
         return true
     end,
     igTableSetupColumn = function(column)
@@ -277,6 +295,10 @@ local rich_ig = {
     end,
     igEndTabItem = function() rich_calls.end_tab_item = true end,
     igEndTabBar = function() rich_calls.end_tab_bar = true end,
+    igOpenPopup_Str = function(title) rich_calls.open_popup = title end,
+    igBeginPopupModal = function(title) rich_calls.modal = title; return true end,
+    igCloseCurrentPopup = function() rich_calls.close_popup = true end,
+    igEndPopup = function() rich_calls.end_popup = true end,
     igSameLine = function() rich_calls.same_line = true end,
 }
 
@@ -286,13 +308,20 @@ gui:Draw(rich_ig)
 assert(confirm:GetValue() == false)
 assert(rich_calls.checkbox == "Format target")
 assert(rich_calls.combo:find("Mode", 1, true))
-assert(rich_calls.table:find("Targets", 1, true))
+local saw_targets = false
+for _, table_label in ipairs(rich_calls.tables or {}) do
+    if table_label:find("Targets", 1, true) then saw_targets = true end
+end
+assert(saw_targets)
 assert(rich_calls.end_table == true)
 assert(rich_calls.tree[1] == "Root")
 assert(rich_calls.end_tab_bar == true)
 assert(confirm_dialog.result == "confirm")
 assert(radio:GetValue() == true)
 assert(slider:GetValue() == 77)
+assert(rich_calls.image == "texture-id")
+assert(rich_calls.modal == "Apply changes")
+assert(rich_calls.end_popup == true)
 assert(custom_drawn == true)
 
 gui:Move({ x = 1, y = 2, w = 800, h = 600 })

@@ -712,10 +712,17 @@ function Gui:Add(kind, opts, text)
         logs = copy_array(options.logs),
         disks = copy_array(options.disks),
         filter = options.filter,
+        cwd = options.cwd,
+        mode = options.mode,
+        fs = options.fs,
         path = options.path,
+        texture = options.texture,
+        texture_w = options.texture_w,
+        texture_h = options.texture_h,
         target = options.target,
         plan_steps = copy_array(options.plan_steps),
         risks = copy_array(options.risks),
+        open = options.open ~= false,
         draw = options.draw,
         tree_nodes = {},
         root_nodes = {},
@@ -987,7 +994,11 @@ local function draw_text_control(control, ig)
     elseif control.type == "StatusBar" then
         ig.igText("%s", table.concat(control.parts or {}, " | "))
     elseif control.type == "Picture" then
-        ig.igText("%s", control.value or control.path or control.text or "Picture")
+        if control.texture and has(ig, "igImage") then
+            ig.igImage(control.texture, vec2(ig, control.texture_w or control.w or 64, control.texture_h or control.h or 64))
+        else
+            ig.igText("%s", control.value or control.path or control.text or "Picture")
+        end
     elseif control.type == "Link" then
         local label = control.text ~= "" and control.text or tostring(control.value or "Link")
         if draw_selectable(ig, label, false) then fire(control, "Click", control.value or control.text) end
@@ -1012,14 +1023,56 @@ local function draw_text_control(control, ig)
         for _, line in ipairs(control.logs or {}) do ig.igText("%s", line.text) end
     elseif control.type == "PathPicker" then
         ig.igText("%s", control.value or control.path or control.text or "")
-    elseif control.type == "DiskList" then
-        for _, disk in ipairs(control.disks or {}) do ig.igText("%s", tostring(disk.label or disk.name or disk.id or disk.index)) end
-    elseif control.type == "ConfirmDialog" then
-        ig.igText("%s", control.text ~= "" and control.text or "Confirm")
-        for _, step in ipairs(control.plan_steps or {}) do ig.igText("%s", tostring(step.action or step)) end
-        if ig.igButton("Confirm", vec2(ig, 0, 0)) then control:Confirm() end
         if has(ig, "igSameLine") then ig.igSameLine(0, -1) end
-        if ig.igButton("Cancel", vec2(ig, 0, 0)) then control:Cancel() end
+        if ig.igButton("Browse##" .. (control.name or "PathPicker"), vec2(ig, 0, 0)) then control:OpenPicker() end
+        if control.picker then
+            local picker = require("ui.widgets.file_picker")
+            local selected = picker.draw(control.picker, ig)
+            if selected then control:SetPath(selected); control:ClosePicker() end
+        end
+    elseif control.type == "DiskList" then
+        if has(ig, "igBeginTable") and ig.igBeginTable(control.text ~= "" and control.text or "DiskList", 4, 0) then
+            if has(ig, "igTableSetupColumn") then
+                ig.igTableSetupColumn("Disk", 0, 0, 0)
+                ig.igTableSetupColumn("Size", 0, 0, 0)
+                ig.igTableSetupColumn("Type", 0, 0, 0)
+                ig.igTableSetupColumn("Risk", 0, 0, 0)
+            end
+            if has(ig, "igTableHeadersRow") then ig.igTableHeadersRow() end
+            for i, disk in ipairs(control.disks or {}) do
+                if has(ig, "igTableNextRow") then ig.igTableNextRow(0, 0) end
+                local fields = {
+                    tostring(disk.label or disk.name or disk.id or disk.index or i),
+                    tostring(disk.size or disk.size_text or ""),
+                    tostring(disk.type or disk.bus or ""),
+                    disk.danger and tostring(disk.danger_reason or "danger") or "",
+                }
+                for column = 1, 4 do
+                    if has(ig, "igTableSetColumnIndex") then ig.igTableSetColumnIndex(column - 1) end
+                    if draw_selectable(ig, fields[column], control.target == disk) then control:SetTarget(disk) end
+                end
+            end
+            if has(ig, "igEndTable") then ig.igEndTable() end
+        else
+            for _, disk in ipairs(control.disks or {}) do
+                local label = tostring(disk.label or disk.name or disk.id or disk.index)
+                if draw_selectable(ig, label, control.target == disk) then control:SetTarget(disk) end
+            end
+        end
+    elseif control.type == "ConfirmDialog" then
+        local title = control.text ~= "" and control.text or "Confirm"
+        if control.open and has(ig, "igOpenPopup_Str") then ig.igOpenPopup_Str(title, 0) end
+        local visible = true
+        if has(ig, "igBeginPopupModal") then visible = ig.igBeginPopupModal(title, nil, 0) end
+        if visible then
+            ig.igText("%s", title)
+            for _, risk in ipairs(control.risks or {}) do ig.igText("%s", tostring(risk)) end
+            for _, step in ipairs(control.plan_steps or {}) do ig.igText("%s", tostring(step.action or step)) end
+            if ig.igButton("Confirm", vec2(ig, 0, 0)) then control.open = false; control:Confirm(); if has(ig, "igCloseCurrentPopup") then ig.igCloseCurrentPopup() end end
+            if has(ig, "igSameLine") then ig.igSameLine(0, -1) end
+            if ig.igButton("Cancel", vec2(ig, 0, 0)) then control.open = false; control:Cancel(); if has(ig, "igCloseCurrentPopup") then ig.igCloseCurrentPopup() end end
+            if has(ig, "igEndPopup") then ig.igEndPopup() end
+        end
     else
         ig.igText("%s", control.text ~= "" and control.text or control.type)
     end
