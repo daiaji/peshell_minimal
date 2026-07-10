@@ -10,12 +10,15 @@ end
 function M.create(opts)
     opts = opts or {}
     local backend = load_backend(opts.backend)
-    local backend_ctx, backend_err = backend.create(opts)
-    if not backend_ctx then return nil, backend_err or "backend create failed" end
     local status = imgui.status()
     local imgui_ctx = nil
     if status.available then
         imgui_ctx = assert(imgui.create_context())
+    end
+    local backend_ctx, backend_err = backend.create(opts)
+    if not backend_ctx then
+        if imgui_ctx then imgui.destroy_context(imgui_ctx) end
+        return nil, backend_err or "backend create failed"
     end
     return {
         backend = backend,
