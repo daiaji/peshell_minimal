@@ -39,7 +39,6 @@ target_include_directories(cimgui PRIVATE
 target_compile_definitions(cimgui PRIVATE
     IMGUI_USER_CONFIG="${CIMCONFIG_PATH}"
     IMGUI_DISABLE_OBSOLETE_FUNCTIONS=1
-    IMGUI_IMPL_API=extern\ \"C\"\ __declspec\(dllexport\)
 )
 target_link_libraries(cimgui PRIVATE
     d3d11.lib
