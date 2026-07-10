@@ -149,9 +149,8 @@ jobs:
         run: |
           .\bin\peshell.exe run share\lua\5.1\test_profile_runner.lua
           .\bin\peshell.exe run share\lua\5.1\test_gui.lua
-          .\bin\peshell.exe imgui-probe
           if (Test-Path ".\bin\cimgui.dll") {
-            .\bin\peshell.exe imgui-native-smoke
+            .\bin\peshell.exe run share\lua\5.1\test_imgui_native_smoke.lua
           } else {
             Write-Host "cimgui.dll is not packaged; skipping imgui-native-smoke."
           }
